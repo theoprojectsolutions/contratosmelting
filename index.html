@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Melting · Gestão de Contratos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+<link rel="stylesheet" href="css/inteligencia.css">
+<script>
+  // aplica o tema salvo antes de pintar a página, pra não piscar claro→escuro
+  try {
+    var t = localStorage.getItem('melting_theme');
+    if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  } catch(e){}
+</script>
+</head>
+<body>
+<div class="auth-gate" id="auth-gate">
+  <div class="auth-gate-spinner"></div>
+</div>
+<div class="toast" id="toast"><span class="tdot"></span><span class="tmsg">Salvo com sucesso</span></div>
+
+<div class="modal-overlay" id="confirm-modal">
+  <div class="modal-card">
+    <div class="modal-icon danger">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>
+    </div>
+    <h3 class="modal-title" id="confirm-title">Excluir item</h3>
+    <p class="modal-message" id="confirm-message">Tem certeza que deseja excluir este item? Essa ação não pode ser desfeita.</p>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" id="confirm-cancel-btn">Cancelar</button>
+      <button type="button" class="btn btn-danger" id="confirm-ok-btn">Excluir</button>
+    </div>
+  </div>
+</div>
+<div class="shell">
+
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-mark"><img id="sidebar-logo" src="assets/logo-melting-white-hq.png" alt="Melting"></div>
+      <div class="brand-sub">Gestão de Contratos</div>
+      <div class="phase-tag">● Fase 1 · Piloto</div>
+    </div>
+    <nav class="navlist" id="navlist">
+      <div class="nav-section-label">Operação</div>
+      <div class="nav-item active" data-view="visao-geral">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+        Dashboard
+      </div>
+      <div class="nav-item" data-view="contratos">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 3h8l4 4v14H7z"/><path d="M15 3v4h4"/><path d="M9 12h6M9 16h6"/></svg>
+        Contratos
+      </div>
+      <div class="nav-item" data-view="cotacoes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5a2 2 0 0 1 2-2h8l6 6v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M14 3v6h6"/></svg>
+        Cotações
+      </div>
+      <div class="nav-item" data-view="fiscal">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+        Planilhas
+      </div>
+      <div class="nav-item admin-only" data-view="responder">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>
+        Responder planilha
+      </div>
+      <div class="nav-section-label admin-only" id="nav-label-cadastros">Cadastros</div>
+      <div class="nav-item admin-only" data-view="novo-contrato">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        Novo contrato
+      </div>
+      <div class="nav-item admin-only" data-view="nova-cotacao">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        Nova cotação
+      </div>
+      <div class="nav-item admin-only" data-view="novo-cliente">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        Novo cliente
+      </div>
+      <div class="nav-item" data-view="clientes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Clientes &amp; grupos
+      </div>
+      <div class="nav-section-label admin-only">Administração</div>
+      <div class="nav-item admin-only" data-view="usuarios">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+        Usuários
+      </div>
+      <div class="nav-item admin-only" data-view="historico">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg>
+        Histórico
+      </div>
+      <div class="nav-item admin-only" data-view="base">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
+        Base de dados
+      </div>
+      <div class="nav-item" data-view="parametros">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
+        Parâmetros
+      </div>
+    </nav>
+    <div class="sidebar-bottom">
+      <button type="button" class="theme-toggle" id="theme-toggle" title="Alternar tema claro/escuro">
+        <span class="theme-toggle-icon theme-icon-light">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+        </span>
+        <span class="theme-toggle-track"><span class="theme-toggle-dot"></span></span>
+        <span class="theme-toggle-icon theme-icon-dark">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/></svg>
+        </span>
+        <span class="theme-toggle-label" id="theme-toggle-label">Tema claro</span>
+      </button>
+      <div class="db-status" id="db-status">
+        <span class="db-status-dot"></span>
+        <span id="db-status-text">Verificando conexão...</span>
+      </div>
+      <div class="sidebar-foot">
+        Base atual: cargas CSV manuais.<br>
+        Integração via API Sênior prevista para a Fase 3.
+      </div>
+    </div>
+  </aside>
+
+  <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+  <div class="main">
+    <div class="topbar">
+      <button type="button" class="menu-toggle" id="menu-toggle" title="Abrir menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <h1 id="page-title">Dashboard</h1>
+      <div class="topbar-right">
+        <div class="search-wrap">
+          <div class="search-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <input type="text" id="global-search" placeholder="Buscar contrato, cliente...">
+          </div>
+          <div class="search-results" id="global-search-results"></div>
+        </div>
+
+        <div class="topbar-divider"></div>
+
+        <div class="user-menu">
+          <button type="button" class="user-menu-trigger" id="user-menu-trigger">
+            <div class="avatar" id="user-avatar"><img src="assets/logo-icon.png" alt="Melting"></div>
+            <div class="user-menu-text">
+              <span class="umt-name" id="umt-name">Minha conta</span>
+              <span class="umt-sub">Ver perfil</span>
+            </div>
+            <svg class="umt-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+
+          <div class="user-dropdown" id="user-dropdown">
+            <div class="user-dropdown-head">
+              <div class="avatar lg"><img src="assets/logo-icon.png" alt="Melting"></div>
+              <div>
+                <div class="udd-name" id="udd-name">Minha conta</div>
+                <div class="udd-email" id="udd-email">Carregando…</div>
+              </div>
+            </div>
+            <button type="button" class="dropdown-item" id="menu-perfil">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+              Meu perfil
+            </button>
+            <button type="button" class="dropdown-item danger" id="menu-sair">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+              Sair
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <!-- ===== RESPONDER PLANILHA (motor de resposta) ===== -->
+      <section class="view" id="view-responder">
+        <div class="page-head">
+          <div class="eyebrow">Motor de resposta</div>
+          <h2>Responder planilha do cliente</h2>
+          <p>Suba a planilha do cliente: o sistema sugere o ID Melting de cada item, você revisa e aprova, e baixa a planilha respondida ou salva os itens no contrato.</p>
+        </div>
+
+        <div class="upload-panel">
+          <div class="upload-panel-head">
+            <div>
+              <h3>1. Planilha do cliente</h3>
+              <p class="panel-sub">Qualquer layout (.xlsx, .xls ou .csv). O sistema acha a linha de cabeçalho e as colunas sozinho; confira abaixo.</p>
+            </div>
+            <div class="intel-muted" id="rp-arquivo-nome"></div>
+          </div>
+          <label class="dropzone" id="rp-dropzone" for="rp-file">
+            <input type="file" id="rp-file" accept=".xlsx,.xls,.csv,.xlsm" hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M12 4 7 9M12 4l5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+            <div class="dropzone-text"><b>Clique para escolher</b> ou arraste a planilha do cliente aqui</div>
+            <div class="dropzone-sub">Arcelor, Suzano, Trivium... qualquer formato com código, descrição e quantidade</div>
+          </label>
+
+          <div id="rp-config" hidden>
+            <div class="form-grid" style="margin-top:18px;">
+              <div class="field"><label>Aba</label><select id="rp-aba"></select></div>
+              <div class="field"><label>Linha do cabeçalho</label><input type="number" id="rp-cab" min="1"></div>
+              <div class="field"><label>Contrato de destino</label><select id="rp-contrato"></select></div>
+            </div>
+            <h4 class="intel-sub-title">Colunas</h4>
+            <div class="form-grid" id="rp-mapa"></div>
+            <div id="rp-preview" style="margin-top:14px;"></div>
+            <div class="form-actions" style="margin-top:16px;">
+              <button type="button" class="btn" id="rp-rodar">Responder com o motor</button>
+            </div>
+          </div>
+          <div class="intel-progress" id="rp-progresso" hidden><span>...</span><div class="intel-bar"><div class="intel-bar-fill"></div></div></div>
+        </div>
+
+        <div id="rp-resultado" hidden>
+          <div class="kpi-row" id="rp-resumo"></div>
+          <div class="filters">
+            <select id="rp-filtro">
+              <option value="">Todos os itens</option>
+              <option value="pendentes">Ainda não aprovados</option>
+              <option value="aprovado">Aprovados</option>
+              <option value="alta">Confiança alta</option>
+              <option value="media">Confiança média</option>
+              <option value="baixa">Confiança baixa</option>
+              <option value="sem_cadastro">Sem cadastro</option>
+            </select>
+            <input class="filter-input" id="rp-busca" placeholder="Buscar código, descrição, REF ou ID..." style="min-width:260px;">
+            <button type="button" class="btn btn-ghost" id="rp-aprovar-altas">Aprovar todas de confiança alta</button>
+            <button type="button" class="btn btn-ghost" id="rp-ia" hidden>Pedir à IA</button>
+            <span class="intel-spacer"></span>
+            <button type="button" class="btn btn-ghost" id="rp-baixar">Baixar planilha respondida</button>
+            <button type="button" class="btn" id="rp-salvar">Salvar no contrato</button>
+          </div>
+          <div class="intel-muted" id="rp-contagem" style="margin:-6px 0 10px;"></div>
+          <div class="note intel-note" id="rp-dica-codigos" hidden style="margin:0 0 12px;"></div>
+          <div class="table-wrap">
+            <div class="table-scroll">
+              <table id="tbl-rp" class="intel-table"><thead><tr>
+                <th>#</th><th>Código</th><th>Descrição do cliente</th><th>Qtd</th><th>ID Melting sugerido</th><th>Confiança</th><th>Último preço</th><th></th>
+              </tr></thead><tbody></tbody></table>
+            </div>
+          </div>
+          <div class="note" style="margin-top:14px;">
+            <b>Como o motor decide:</b> 1) de-para do cliente (respostas já aprovadas) · 2) mesmo código do cliente no histórico de vendas · 3) REF igual ao apelido do cadastro · 4) regras de terminal e adaptador hidráulico · 5) equivalente ao REF com travas de material, rosca, tipo de peça e medidas · 6) padrão aprendido de itens parecidos. Itens aprovados entram no de-para e voltam sozinhos na renovação.
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== BASE DE DADOS ===== -->
+      <section class="view" id="view-base">
+        <div class="page-head">
+          <div class="page-head-row">
+            <div>
+              <div class="eyebrow">Administração</div>
+              <h2>Base de dados do motor</h2>
+              <p>Importe as exportações do SIG. O cadastro alimenta as respostas; o histórico de vendas alimenta o consumo real e os KPIs.</p>
+            </div>
+            <div class="page-head-actions"><button class="btn btn-ghost" id="base-recarregar">Recarregar catálogo</button></div>
+          </div>
+        </div>
+        <div class="kpi-row" id="base-resumo"></div>
+
+        <div class="grid-2 intel-grid-even">
+          <div class="upload-panel">
+            <div class="upload-panel-head"><div>
+              <h3>Cadastro de produtos</h3>
+              <p class="panel-sub">Exportação "cad_produtos" do SIG (pode mandar todos os arquivos de origem juntos). Substitui/atualiza pelo código do produto.</p>
+            </div></div>
+            <label class="dropzone" id="base-cad-dz" for="base-cad-file">
+              <input type="file" id="base-cad-file" accept=".xls,.xlsx,.csv" multiple hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M12 4 7 9M12 4l5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+              <div class="dropzone-text"><b>Escolher arquivos</b> cad_produtos_*.xls</div>
+            </label>
+            <div class="intel-progress"><span id="base-cad-status" class="intel-muted"></span><div class="intel-bar"><div class="intel-bar-fill" id="base-cad-bar"></div></div></div>
+          </div>
+          <div class="upload-panel">
+            <div class="upload-panel-head"><div>
+              <h3>Histórico de vendas</h3>
+              <p class="panel-sub">Exportação "relsitped" do SIG (pedido, cliente, produto, código do cliente, quantidade, preço, data). Pode reimportar: não duplica.</p>
+            </div></div>
+            <label class="dropzone" id="base-ven-dz" for="base-ven-file">
+              <input type="file" id="base-ven-file" accept=".xls,.xlsx,.csv" multiple hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M12 4 7 9M12 4l5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+              <div class="dropzone-text"><b>Escolher arquivos</b> relsitped*.xls</div>
+            </label>
+            <div class="intel-progress"><span id="base-ven-status" class="intel-muted"></span><div class="intel-bar"><div class="intel-bar-fill" id="base-ven-bar"></div></div></div>
+          </div>
+        </div>
+
+        <div class="upload-panel">
+          <div class="upload-panel-head"><div>
+            <h3>Ensinar com planilhas já respondidas</h3>
+            <p class="panel-sub">Suba contratos que a Melting já respondeu (com o código do cliente e o ID Melting). Vira de-para: na próxima planilha desse cliente, esses códigos voltam com o ID certo, e os padrões ajudam em itens parecidos.</p>
+          </div><div class="intel-muted" id="ens-arquivo"></div></div>
+          <label class="dropzone" id="ens-dz" for="ens-file">
+            <input type="file" id="ens-file" accept=".xls,.xlsx,.csv" hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M12 4 7 9M12 4l5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+            <div class="dropzone-text"><b>Escolher planilha respondida</b></div>
+          </label>
+          <div id="ens-config" hidden>
+            <div class="form-grid" style="margin-top:16px;">
+              <div class="field"><label>Aba</label><select id="ens-aba"></select></div>
+              <div class="field"><label>Linha do cabeçalho</label><input type="number" id="ens-cab" min="1"></div>
+              <div class="field"><label>Cliente (grupo)</label><select id="ens-cliente"></select></div>
+              <div class="field"><label>Coluna do código do cliente</label><select id="ens-col-cod"></select></div>
+              <div class="field"><label>Coluna do ID Melting</label><select id="ens-col-id"></select></div>
+              <div class="field"><label>Coluna da descrição (opcional)</label><select id="ens-col-desc"></select></div>
+            </div>
+            <div class="form-actions" style="margin-top:14px;"><span class="intel-muted" id="ens-status"></span><button type="button" class="btn" id="ens-salvar">Aprender</button></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== PARÂMETROS ===== -->
+      <section class="view" id="view-parametros">
+        <div class="page-head">
+          <div class="eyebrow">Administração</div>
+          <h2>Parâmetros</h2>
+          <p>Limites usados nos status, na régua, nos KPIs de consumo e no motor de resposta. Valem para todos os usuários.</p>
+        </div>
+        <div class="form-card" id="param-form"></div>
+      </section>
+
+      <!-- ===== VISÃO GERAL ===== -->
+      <section class="view active" id="view-visao-geral">
+        <div class="page-head">
+          <div class="page-head-row">
+            <div>
+              <div class="eyebrow">Painel diário</div>
+              <h2>Saúde da carteira de contratos</h2>
+              <p>Consolidado de vigência, consumo e ações pendentes com base na carga CSV mais recente.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="filters">
+          <input type="text" id="dash-filtro" class="filter-input" placeholder="Filtrar por cliente, grupo ou segmento..." style="min-width:300px;">
+          <button type="button" class="btn btn-ghost" id="dash-filtro-limpar">Limpar filtro</button>
+        </div>
+
+        <div class="kpi-row" id="kpi-row"></div>
+
+        <div class="regua-card">
+          <h3>Régua de alertas de vencimento</h3>
+          <div class="regua-desc">Quantidade de contratos em cada etapa da régua, com o responsável sugerido pela ação.</div>
+          <div class="regua-track" id="regua-track"></div>
+        </div>
+
+        <div id="intel-dashboard"></div>
+
+        <div class="grid-2">
+          <div class="panel">
+            <h3>Visão diária — contratos que precisam de ação hoje</h3>
+            <div class="table-scroll">
+              <table id="tbl-diaria"><thead><tr>
+                <th>Cliente</th><th>Vencimento</th><th>Saúde</th><th>Ação sugerida</th>
+              </tr></thead><tbody></tbody></table>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>Índice de consumo por cliente</h3>
+            <div class="panel-sub">Consumo realizado ÷ quantidade estimada do contrato</div>
+            <div id="consumo-list"></div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="panel">
+            <h3>Contratos por segmento</h3>
+            <div class="panel-sub">Quantidade de contratos em cada segmento</div>
+            <div id="segmento-list"></div>
+          </div>
+          <div class="panel">
+            <h3>Ranking de vendedores</h3>
+            <div class="panel-sub">Contratos ativos por vendedor interno</div>
+            <div id="ranking-list"></div>
+          </div>
+        </div>
+
+        <div class="note">
+          <b>Protótipo Fase 1</b> — dados fictícios para fins de demonstração. As regras de status (Saudável, Atenção, Crítico, Oportunidade) e a régua de 120/90/60/30 dias/Vencido seguem exatamente os critérios definidos no documento de escopo.
+        </div>
+      </section>
+
+      <!-- ===== CONTRATOS ===== -->
+      <section class="view" id="view-contratos">
+        <div class="page-head">
+          <div class="page-head-row">
+            <div>
+              <div class="eyebrow">Cadastro &amp; acompanhamento</div>
+              <h2>Contratos</h2>
+              <p>Contratos recorrentes com cliente, grupo ou unidade. Itens SPOT ficam fora desta gestão.</p>
+            </div>
+            <div class="page-head-actions">
+              <button class="btn btn-ghost" id="btn-exportar-contratos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>Exportar</button>
+              <button class="btn btn-ghost" id="btn-imprimir-contratos" title="Imprimir ou salvar como PDF"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z"/></svg>PDF</button>
+              <button class="btn admin-only" data-goto="novo-contrato"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>Novo contrato</button>
+            </div>
+          </div>
+        </div>
+        <div class="filters">
+          <select id="f-grupo"><option value="">Grupo de empresas</option></select>
+          <select id="f-segmento"><option value="">Segmento</option></select>
+          <select id="f-vendedor"><option value="">Vendedor</option></select>
+          <select id="f-status"><option value="">Status de saúde</option></select>
+          <div class="ms" id="ms-receb-contratos">
+            <button type="button" class="ms-btn" id="ms-receb-contratos-btn">
+              <span id="ms-receb-contratos-label">Data recebimento</span>
+              <svg class="ms-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="ms-panel" id="ms-receb-contratos-panel" hidden>
+              <div class="ms-panel-head">
+                <span class="ms-panel-title">Data recebimento</span>
+                <button type="button" class="ms-close" data-ms-close="contratos" title="Fechar" aria-label="Fechar">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6 6 18"/></svg>
+                </button>
+              </div>
+              <div class="ms-panel-actions">
+                <button type="button" class="ms-link" data-ms-all="contratos">Selecionar todos</button>
+                <button type="button" class="ms-link" data-ms-clear="contratos">Limpar</button>
+              </div>
+              <div class="ms-list" id="ms-receb-contratos-list"></div>
+            </div>
+          </div>
+          <input class="filter-input" id="f-busca" placeholder="Buscar cliente ou ID..." style="min-width:200px;">
+          <button type="button" class="btn btn-danger-ghost admin-only" id="btn-excluir-selecionados-contratos" title="Excluir os contratos marcados na tabela">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m2 0-1 13a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 7"/></svg>
+            Excluir selecionados
+          </button>
+        </div>
+        <div class="table-wrap">
+          <div class="table-scroll">
+            <table id="tbl-contratos"><thead><tr>
+              <th class="col-check"><input type="checkbox" id="chk-contratos-all" title="Selecionar todos"></th>
+              <th>Cliente</th><th>Grupo</th><th>Segmento</th><th>Vendedor</th><th>Data recebimento</th><th>Vigência</th><th>Dias p/ vencer</th><th>Consumo</th><th>Saúde</th><th></th>
+            </tr></thead><tbody></tbody></table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== COTAÇÕES ===== -->
+      <section class="view" id="view-cotacoes">
+        <div class="page-head">
+          <div class="page-head-row">
+            <div>
+              <div class="eyebrow">Comparativo</div>
+              <h2>Cotações</h2>
+              <p>Cotações novas e de renovação, com status e motivo de perda ou renovação.</p>
+            </div>
+            <div class="page-head-actions">
+              <button class="btn btn-ghost" id="btn-exportar-cotacoes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>Exportar</button>
+              <button class="btn btn-ghost" id="btn-imprimir-cotacoes" title="Imprimir ou salvar como PDF"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z"/></svg>PDF</button>
+              <button class="btn admin-only" data-goto="nova-cotacao"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>Nova cotação</button>
+            </div>
+          </div>
+        </div>
+        <div class="filters">
+          <select id="fc-tipo"><option value="">Tipo</option></select>
+          <select id="fc-status"><option value="">Status</option></select>
+          <div class="ms" id="ms-receb-cotacoes">
+            <button type="button" class="ms-btn" id="ms-receb-cotacoes-btn">
+              <span id="ms-receb-cotacoes-label">Data recebimento</span>
+              <svg class="ms-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="ms-panel" id="ms-receb-cotacoes-panel" hidden>
+              <div class="ms-panel-head">
+                <span class="ms-panel-title">Data recebimento</span>
+                <button type="button" class="ms-close" data-ms-close="cotacoes" title="Fechar" aria-label="Fechar">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6 6 18"/></svg>
+                </button>
+              </div>
+              <div class="ms-panel-actions">
+                <button type="button" class="ms-link" data-ms-all="cotacoes">Selecionar todos</button>
+                <button type="button" class="ms-link" data-ms-clear="cotacoes">Limpar</button>
+              </div>
+              <div class="ms-list" id="ms-receb-cotacoes-list"></div>
+            </div>
+          </div>
+          <input class="filter-input" id="fc-busca" placeholder="Buscar cliente ou nº da cotação..." style="min-width:240px;">
+          <button type="button" class="btn btn-danger-ghost admin-only" id="btn-excluir-selecionados-cotacoes" title="Excluir as cotações marcadas na tabela">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m2 0-1 13a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 7"/></svg>
+            Excluir selecionadas
+          </button>
+        </div>
+        <div class="table-wrap">
+          <div class="table-scroll">
+            <table id="tbl-cotacoes"><thead><tr>
+              <th class="col-check"><input type="checkbox" id="chk-cotacoes-all" title="Selecionar todas"></th>
+              <th>Cliente</th><th>Status</th><th>Tipo</th><th>Data recebimento</th><th>Data envio</th><th>Itens estimados</th><th>Itens cotados</th><th>%</th><th>Total dos itens</th><th>R$ Cotado total</th><th>Motivo</th><th></th>
+            </tr></thead><tbody></tbody></table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== FISCAL ===== -->
+      <section class="view" id="view-fiscal">
+        <div class="page-head">
+          <div class="eyebrow">Documentos</div>
+          <h2>Planilhas</h2>
+          <p>Envie as planilhas de contratos geradas no Excel — ficam organizadas aqui em ordem alfabética.</p>
+        </div>
+
+        <div class="upload-panel admin-only" style="margin-bottom:20px; border:1.5px solid var(--brand-500);">
+          <div class="upload-panel-head">
+            <div>
+              <h3>Importar planilha oficial (Contratos + Cotações)</h3>
+              <p class="panel-sub">Envie a planilha de controle da Melting (abas "Controle_Contratos", "Controle_Cotações_2025" e "Controle_Cotações_2026") — o sistema lê e cadastra tudo automaticamente, já aparecendo no Dashboard.</p>
+            </div>
+          </div>
+
+          <details class="formato-esperado">
+            <summary>Ver o formato exato que a planilha precisa ter</summary>
+            <div class="formato-esperado-corpo">
+              <p>O arquivo precisa ter pelo menos uma dessas abas, com esse nome exato:</p>
+              <p><b>Aba "Controle_Contratos"</b> — colunas: N°, Cliente, Vendedor, Período, Segmento, Data inicial, Data do vencimento, Status, Data reajuste, Situação, Observação.</p>
+              <p><b>Abas "Controle_Cotações_2025" / "Controle_Cotações_2026"</b> — colunas: N°, Cliente, Internos, Externos, Tipo (só 2026), Segmento, Data recebimento, Data retorno, Total de itens (estimado), Total de itens (cotados), %, R$ cotados total, Total de itens (vencidos), R$ total estimado (vencidos), Observação, Data última atualização.</p>
+              <p style="color:var(--ink-500);">O sistema reconhece as colunas pelo <b>nome do cabeçalho</b>, não pela posição — então pode reordenar ou adicionar colunas extras que não atrapalha. Só o nome das abas precisa ser exatamente esse.</p>
+            </div>
+          </details>
+
+          <label class="dropzone" id="dropzone-importar" for="file-input-importar">
+            <input type="file" id="file-input-importar" accept=".xlsx,.xls" hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M12 4 7 9M12 4l5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+            <div class="dropzone-text"><b>Clique para importar</b> ou arraste a planilha oficial aqui</div>
+            <div class="dropzone-sub">.XLSX ou .XLS — só as abas de controle são lidas</div>
+          </label>
+
+          <div id="importar-resultado"></div>
+        </div>
+
+        <div class="upload-panel">
+          <div class="upload-panel-head">
+            <div>
+              <h3>Planilhas de contratos (Excel)</h3>
+              <p class="panel-sub">Envie os arquivos gerados no Excel — ficam listados abaixo em ordem alfabética.</p>
+            </div>
+            <input type="text" id="f-planilha-busca" class="filter-input" placeholder="Buscar arquivo...">
+          </div>
+
+          <label class="dropzone admin-only" id="dropzone" for="file-input">
+            <input type="file" id="file-input" multiple accept=".xlsx,.xls,.csv" hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M12 4 7 9M12 4l5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+            <div class="dropzone-text"><b>Clique para enviar</b> ou arraste os arquivos aqui</div>
+            <div class="dropzone-sub">.XLSX, .XLS ou .CSV</div>
+          </label>
+
+          <div class="file-list" id="file-list">
+            <div class="file-list-empty" id="file-list-empty">Nenhuma planilha enviada ainda.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== NOVO CONTRATO ===== -->
+      <section class="view" id="view-novo-contrato">
+        <div class="page-head">
+          <div class="eyebrow">Cadastro geral · contrato</div>
+          <h2 id="nc-heading">Novo contrato</h2>
+          <p id="nc-desc">Campos recomendados conforme o escopo definido: cadastro geral e dados do contrato.</p>
+        </div>
+        <form class="form-card" id="form-contrato">
+          <div class="form-section">
+            <h4>Cadastro geral</h4>
+            <div class="form-grid">
+              <div class="field"><label>Grupo de empresas <span class="req-mark">*</span></label><input id="nc-grupo" type="text" placeholder="Ex.: Grupo Alfa" maxlength="100" required></div>
+              <div class="field"><label>Cliente (razão social) <span class="req-mark">*</span></label><input id="nc-cliente" type="text" placeholder="Razão social" maxlength="150" required></div>
+              <div class="field"><label>Nome fantasia</label><input id="nc-fantasia" type="text" placeholder="Nome fantasia" maxlength="150"></div>
+              <div class="field"><label>CNPJ</label><input id="nc-cnpj" type="text" inputmode="numeric" placeholder="Somente números" maxlength="20" pattern="\d*"></div>
+              <div class="field"><label>Unidade / planta <span class="req-mark">*</span></label><input id="nc-unidade" type="text" placeholder="Ex.: Matriz - SP" maxlength="100" required></div>
+              <div class="field"><label>Comprador (contato)</label><input id="nc-comprador" type="text" placeholder="Nome do comprador" maxlength="100"></div>
+              <div class="field"><label>Segmento <span class="req-mark">*</span></label><input id="nc-segmento" type="text" placeholder="Ex.: Metalurgia, Têxtil, Farmacêutico" maxlength="60" required></div>
+            </div>
+          </div>
+          <div class="form-section">
+            <h4>Contrato</h4>
+            <div class="form-grid">
+              <div class="field"><label>ID do contrato</label><input id="nc-id" type="text" placeholder="Gerado automaticamente" disabled></div>
+              <div class="field"><label>Tipo</label><select id="nc-tipo"><option>Novo</option><option>Renovação</option></select></div>
+              <div class="field"><label>Status</label><select id="nc-status"><option>Ativo</option><option>A vencer</option><option>Em negociação</option></select></div>
+              <div class="field"><label>Data de início <span class="req-mark">*</span></label><input id="nc-inicio" type="date" required></div>
+              <div class="field"><label>Data de fim (vigência) <span class="req-mark">*</span></label><input id="nc-fim" type="date" required></div>
+              <div class="field"><label>Data de recebimento</label><input id="nc-data-receb" type="date"></div>
+              <div class="field"><label>Origem da cotação</label><input id="nc-origem" type="text" placeholder="Nº da cotação vinculada" maxlength="30"></div>
+              <div class="field"><label>Vendedor interno <span class="req-mark">*</span></label><input id="nc-vend-int" type="text" placeholder="Nome" maxlength="100" required></div>
+              <div class="field"><label>Vendedor externo</label><input id="nc-vend-ext" type="text" placeholder="Nome" maxlength="100"></div>
+              <div class="field"><label>Gerente responsável <span class="req-mark">*</span></label><input id="nc-gerente" type="text" placeholder="Nome" maxlength="100" required></div>
+              <div class="field"><label>Cliente no SIG (fantasia e/ou código)</label><input id="nc-codigos" type="text" placeholder="Ex.: TRIVIUM PACKAGING" maxlength="300"></div>
+            </div>
+          </div>
+          <div class="form-section">
+            <h4>Itens</h4>
+            <div class="form-grid">
+              <div class="field"><label>Quantidade de itens</label><input id="nc-qtd-itens" type="number" min="0" placeholder="Nº de itens do contrato"></div>
+              <div class="field"><label>Itens cotados</label><input id="nc-itens-cotados" type="number" min="0" placeholder="Nº de itens que foram cotados"></div>
+              <div class="field"><label>Total dos itens (R$)</label><input id="nc-valor" type="number" step="0.01" min="0" placeholder="R$"></div>
+              <div class="field"><label>Total cotado (R$)</label><input id="nc-valor-cotado" type="number" step="0.01" min="0" placeholder="R$"></div>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn btn-ghost" id="nc-cancel-btn" data-goto="contratos">Cancelar</button>
+            <button type="submit" class="btn" id="nc-submit-btn">Salvar contrato</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- ===== NOVA COTAÇÃO ===== -->
+      <section class="view" id="view-nova-cotacao">
+        <div class="page-head">
+          <div class="eyebrow">Cadastro de cotação</div>
+          <h2>Nova cotação</h2>
+          <p>Cadastro de cotações novas ou de renovação, com status e motivo de perda ou renovação.</p>
+        </div>
+        <form class="form-card" id="form-cotacao">
+          <div class="form-section">
+            <h4>Cotação</h4>
+            <div class="form-grid">
+              <div class="field span-2"><label>Cliente <span class="req-mark">*</span></label><input id="cot-cliente" type="text" placeholder="Cliente vinculado" maxlength="150" required></div>
+              <div class="field"><label>Tipo</label><select id="cot-tipo"><option>Cliente novo</option><option>Renovação</option></select></div>
+              <div class="field"><label>Status</label><select id="cot-status"><option>Ativo</option><option>Em negociação</option><option>Renovado</option><option>Perdido</option></select></div>
+            </div>
+          </div>
+          <div class="form-section">
+            <h4>Datas</h4>
+            <div class="form-grid">
+              <div class="field"><label>Data recebimento <span class="req-mark">*</span></label><input id="cot-data-receb" type="date" required></div>
+              <div class="field"><label>Data envio <span class="req-mark">*</span></label><input id="cot-data-envio" type="date" required></div>
+            </div>
+          </div>
+          <div class="form-section">
+            <h4>Itens &amp; valores</h4>
+            <div class="form-grid">
+              <div class="field"><label>Total de itens estimados <span class="req-mark">*</span></label><input id="cot-itens-est" type="number" min="0" placeholder="Ex.: 640" required></div>
+              <div class="field"><label>Total de itens cotados <span class="req-mark">*</span></label><input id="cot-itens-cot" type="number" min="0" placeholder="Ex.: 467" required></div>
+              <div class="field"><label>Total dos itens (R$)</label><input id="cot-valor-estimado" type="number" step="0.01" min="0" placeholder="R$"></div>
+              <div class="field"><label>R$ Cotado total <span class="req-mark">*</span></label><input id="cot-valor-cotado" type="number" step="0.01" min="0" placeholder="R$" required></div>
+              <div class="field"><label>Valor do contrato vigente</label><input id="cot-valor-contrato" type="number" step="0.01" min="0" placeholder="R$ (se renovação)"></div>
+            </div>
+          </div>
+          <div class="form-section">
+            <h4>Motivo</h4>
+            <div class="form-grid">
+              <div class="field span-3"><label>Motivo de perda / renovação</label><textarea id="cot-motivo" rows="2" placeholder="Ex.: aguardando validação do comprador" maxlength="300"></textarea></div>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn btn-ghost" data-goto="cotacoes">Cancelar</button>
+            <button type="submit" class="btn">Salvar cotação</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- ===== DETALHE DO CONTRATO ===== -->
+      <section class="view" id="view-detalhe-contrato">
+        <div class="back-link" id="btn-voltar-detalhe">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m15 18-6-6 6-6"/></svg>
+          Voltar para Contratos
+        </div>
+        <div class="detail-head">
+          <div>
+            <div class="detail-title">
+              <h2 id="det-id">C-2026-000</h2>
+              <span class="badge" id="det-status-badge"><span class="dot"></span>Status</span>
+            </div>
+            <div class="detail-sub" id="det-sub">Cliente · Grupo · Unidade · Segmento</div>
+          </div>
+          <div class="detail-actions">
+            <button class="icon-btn danger admin-only" id="btn-excluir-detalhe" title="Excluir contrato" style="width:38px; height:38px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m2 0-1 13a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 7"/></svg>
+            </button>
+            <button class="btn btn-ghost" id="btn-exportar-detalhe" title="Exportar como CSV/Excel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>Exportar</button>
+            <button class="btn btn-ghost" id="btn-imprimir-detalhe" title="Imprimir ou salvar como PDF"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z"/></svg>PDF</button>
+            <button class="btn btn-ghost admin-only" id="btn-editar-detalhe">Editar contrato</button>
+            <button class="btn btn-ghost admin-only" id="btn-nova-cotacao-detalhe">Registrar nova cotação</button>
+            <button class="btn admin-only" id="btn-renovar-detalhe">Registrar renovação</button>
+          </div>
+        </div>
+
+        <div class="kv-grid">
+          <div class="kv-block">
+            <h4>Contrato</h4>
+            <div class="kv-row"><span class="k">Data de recebimento</span><span class="v" id="det-data-receb">–</span></div>
+            <div class="kv-row"><span class="k">Vigência</span><span class="v" id="det-vigencia">–</span></div>
+            <div class="kv-row"><span class="k">Dias para vencer</span><span class="v" id="det-dias">–</span></div>
+            <div class="kv-row"><span class="k">Valor contratado</span><span class="v" id="det-valor">–</span></div>
+            <div class="kv-row"><span class="k">Ação sugerida</span><span class="v" id="det-acao">–</span></div>
+          </div>
+          <div class="kv-block">
+            <h4>Itens</h4>
+            <div class="kv-row"><span class="k">Quantidade de itens</span><span class="v" id="det-qtd-itens">–</span></div>
+            <div class="kv-row"><span class="k">Itens cotados</span><span class="v" id="det-itens-cotados">–</span></div>
+            <div class="kv-row"><span class="k">Total cotado</span><span class="v" id="det-valor-cotado">–</span></div>
+            <div class="kv-row"><span class="k">Itens vencidos</span><span class="v" id="det-itens-vencidos">–</span></div>
+          </div>
+          <div class="kv-block">
+            <h4>Comercial</h4>
+            <div class="kv-row"><span class="k">Vendedor interno</span><span class="v" id="det-vend-int">–</span></div>
+            <div class="kv-row"><span class="k">Vendedor externo</span><span class="v" id="det-vend-ext">–</span></div>
+            <div class="kv-row"><span class="k">Gerente</span><span class="v" id="det-gerente">–</span></div>
+            <div class="kv-row"><span class="k">Unidade / planta</span><span class="v" id="det-unidade">–</span></div>
+          </div>
+          <div class="kv-block">
+            <h4>Consumo</h4>
+            <div class="kv-row"><span class="k">Estimado</span><span class="v" id="det-qtd-est">–</span></div>
+            <div class="kv-row"><span class="k">Realizado</span><span class="v" id="det-qtd-real">–</span></div>
+            <div class="kv-row"><span class="k">Índice de consumo</span><span class="v" id="det-consumo-pct">–</span></div>
+            <div style="margin-top:10px;"><div class="bar-track"><div class="bar-fill" id="det-consumo-bar" style="width:0%"></div></div></div>
+          </div>
+
+          <div class="regua-card detail-grid-full">
+            <h3>Posição na régua de alertas</h3>
+            <div class="regua-desc">Onde este contrato está hoje na régua de vencimento.</div>
+            <div class="regua-track" id="det-regua-track"></div>
+          </div>
+        </div>
+
+        <div id="intel-contrato"></div>
+      </section>
+
+      <!-- ===== DETALHE DA COTAÇÃO ===== -->
+      <section class="view" id="view-detalhe-cotacao">
+        <div class="back-link" id="btn-voltar-detalhe-cotacao">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m15 18-6-6 6-6"/></svg>
+          Voltar para Cotações
+        </div>
+        <div class="detail-head">
+          <div>
+            <div class="detail-title">
+              <h2 id="detcot-cliente">Cliente</h2>
+              <span class="badge" id="detcot-status-badge"><span class="dot"></span>Status</span>
+            </div>
+            <div class="detail-sub" id="detcot-sub">Tipo · Data recebimento – Data envio</div>
+          </div>
+          <div class="detail-actions">
+            <button class="icon-btn danger admin-only" id="btn-excluir-detcot" title="Excluir cotação" style="width:38px; height:38px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m2 0-1 13a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 7"/></svg>
+            </button>
+            <button class="btn btn-ghost" id="btn-exportar-detcot" title="Exportar como CSV/Excel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>Exportar</button>
+            <button class="btn btn-ghost" id="btn-imprimir-detcot" title="Imprimir ou salvar como PDF"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z"/></svg>PDF</button>
+          </div>
+        </div>
+
+        <div class="kv-grid">
+          <div class="kv-block">
+            <h4>Cotação</h4>
+            <div class="kv-row"><span class="k">Tipo</span><span class="v" id="detcot-tipo">–</span></div>
+            <div class="kv-row"><span class="k">Data recebimento</span><span class="v" id="detcot-data-receb">–</span></div>
+            <div class="kv-row"><span class="k">Data envio</span><span class="v" id="detcot-data-envio">–</span></div>
+            <div class="kv-row"><span class="k">Motivo</span><span class="v" id="detcot-motivo">–</span></div>
+          </div>
+          <div class="kv-block">
+            <h4>Itens &amp; valores</h4>
+            <div class="kv-row"><span class="k">Itens estimados</span><span class="v" id="detcot-itens-est">–</span></div>
+            <div class="kv-row"><span class="k">Itens cotados</span><span class="v" id="detcot-itens-cot">–</span></div>
+            <div class="kv-row"><span class="k">%</span><span class="v" id="detcot-pct">–</span></div>
+            <div class="kv-row"><span class="k">Total dos itens</span><span class="v" id="detcot-valor-estimado">–</span></div>
+            <div class="kv-row"><span class="k">R$ Cotado total</span><span class="v" id="detcot-valor-cotado">–</span></div>
+          </div>
+          <div class="kv-block">
+            <h4>Comercial</h4>
+            <div class="kv-row"><span class="k">Internos</span><span class="v" id="detcot-internos">–</span></div>
+            <div class="kv-row"><span class="k">Externos</span><span class="v" id="detcot-externos">–</span></div>
+          </div>
+
+          <div class="kv-block detail-grid-full" id="detcot-bloco-itens">
+            <h4>Itens cotados (detalhamento)</h4>
+            <p class="panel-sub" style="margin-bottom:12px;">Quantidade e valor de cada item desta cotação — o mais cotado aparece destacado no topo.</p>
+            <div class="table-scroll">
+              <table id="tbl-cotacao-itens"><thead><tr>
+                <th>Item</th><th>Quantidade</th><th>%</th><th>Valor</th><th></th>
+              </tr></thead><tbody></tbody></table>
+            </div>
+            <div class="cotacao-item-form admin-only">
+              <input type="text" id="ci-nome" placeholder="Nome do item (ex.: Correia sincronizadora)">
+              <input type="number" id="ci-qtd" placeholder="Quantidade" min="0">
+              <input type="number" id="ci-valor" placeholder="Valor (R$)" min="0" step="0.01">
+              <button type="button" class="btn" id="btn-add-item-cotacao">Adicionar item</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== CLIENTES ===== -->
+      <section class="view" id="view-clientes">
+        <div class="page-head">
+          <div class="page-head-row">
+            <div>
+              <div class="eyebrow">Cadastro geral</div>
+              <h2>Clientes &amp; grupos econômicos</h2>
+              <p>Separação por unidade/planta para análise fiscal e comercial individualizada.</p>
+            </div>
+            <div class="page-head-actions">
+              <button class="btn btn-ghost admin-only" id="btn-sincronizar-clientes" title="Cadastrar automaticamente clientes que já aparecem em Contratos/Cotações mas ainda não têm ficha própria">Sincronizar clientes</button>
+              <button class="btn admin-only" data-goto="novo-cliente"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>Novo cliente</button>
+            </div>
+          </div>
+        </div>
+        <div class="filters">
+          <input class="filter-input" id="fcl-busca" placeholder="Buscar cliente ou grupo..." style="min-width:240px;">
+          <button type="button" class="btn btn-danger-ghost admin-only" id="btn-excluir-selecionados-clientes" title="Excluir os clientes marcados na tabela">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m2 0-1 13a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 7"/></svg>
+            Excluir selecionados
+          </button>
+        </div>
+        <div class="table-wrap">
+          <div class="table-scroll">
+            <table id="tbl-clientes"><thead><tr>
+              <th class="col-check"><input type="checkbox" id="chk-clientes-all" title="Selecionar todos"></th>
+              <th>Cliente</th><th>Grupo econômico</th><th>Unidade/planta</th><th>Comprador</th><th>Vendedor principal</th><th>Contratos ativos</th><th></th>
+            </tr></thead><tbody></tbody></table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== USUÁRIOS (só admin) ===== -->
+      <section class="view" id="view-usuarios">
+        <div class="page-head">
+          <div class="eyebrow">Administração</div>
+          <h2>Usuários</h2>
+          <p>Quem tem acesso ao sistema e qual o nível de acesso de cada um.</p>
+        </div>
+        <div class="table-wrap">
+          <div class="table-scroll">
+            <table id="tbl-usuarios"><thead><tr>
+              <th>E-mail</th><th>Nível de acesso</th><th>Desde</th><th></th>
+            </tr></thead><tbody></tbody></table>
+          </div>
+        </div>
+        <p class="perfil-note" style="margin-top:14px;">Usuários novos entram automaticamente como "Gerente" (somente leitura) — promova aqui quem precisar de acesso total.</p>
+      </section>
+
+      <!-- ===== HISTÓRICO (só admin) ===== -->
+      <section class="view" id="view-historico">
+        <div class="page-head">
+          <div class="page-head-row">
+            <div>
+              <div class="eyebrow">Administração</div>
+              <h2>Histórico de alterações</h2>
+              <p>Registro de quem criou, editou ou excluiu contratos, cotações e clientes.</p>
+            </div>
+            <button class="btn btn-ghost" id="btn-atualizar-historico">Atualizar</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <div class="table-scroll">
+            <table id="tbl-historico"><thead><tr>
+              <th>Quando</th><th>Usuário</th><th>Tabela</th><th>Ação</th><th>Registro</th>
+            </tr></thead><tbody></tbody></table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== NOVO CLIENTE ===== -->
+      <section class="view" id="view-novo-cliente">
+        <div class="page-head">
+          <div class="eyebrow">Cadastro geral</div>
+          <h2>Novo cliente</h2>
+          <p>Cadastro de cliente e grupo econômico, usado no vínculo de contratos e cotações.</p>
+        </div>
+        <form class="form-card" id="form-cliente">
+          <div class="form-section">
+            <h4>Dados do cliente</h4>
+            <div class="form-grid">
+              <div class="field span-2"><label>Cliente (razão social) <span class="req-mark">*</span></label><input id="cl-nome" type="text" placeholder="Razão social" maxlength="150" required></div>
+              <div class="field"><label>Grupo econômico <span class="req-mark">*</span></label><input id="cl-grupo" type="text" placeholder="Ex.: Grupo Alfa" maxlength="100" required></div>
+              <div class="field span-2"><label>Unidades / plantas</label><input id="cl-unidades" type="text" placeholder="Ex.: Matriz - SP, Filial - Sorocaba" maxlength="200"></div>
+              <div class="field"><label>Comprador (contato)</label><input id="cl-comprador" type="text" placeholder="Nome do comprador" maxlength="100"></div>
+              <div class="field"><label>Vendedor principal</label><input id="cl-vendedor" type="text" placeholder="Nome do vendedor" maxlength="100"></div>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn btn-ghost" data-goto="clientes">Cancelar</button>
+            <button type="submit" class="btn">Salvar cliente</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- ===== MEU PERFIL ===== -->
+      <section class="view" id="view-perfil">
+        <div class="page-head">
+          <div class="eyebrow">Minha conta</div>
+          <h2>Meu perfil</h2>
+          <p>Informações da sua conta de acesso ao sistema.</p>
+        </div>
+
+        <div class="perfil-card">
+          <div class="perfil-head">
+            <div class="avatar lg"><img src="assets/logo-icon.png" alt="Melting"></div>
+            <div class="perfil-nome" id="perfil-nome-display">Usuário Melting</div>
+            <div class="perfil-cargo" id="perfil-cargo-display">Assistente comercial · Acesso total</div>
+          </div>
+
+          <div class="kv-block" style="margin-top:20px;">
+            <h4>Dados da conta</h4>
+            <div class="kv-row kv-edit">
+              <span class="k">Nome</span>
+              <span class="v-edit">
+                <input type="text" id="perfil-nome-input" placeholder="Como você quer ser chamado?">
+                <button type="button" class="btn-save-inline" id="btn-salvar-nome">Salvar</button>
+              </span>
+            </div>
+            <div class="kv-row"><span class="k">E-mail</span><span class="v" id="perfil-email">—</span></div>
+            <div class="kv-row"><span class="k">Empresa</span><span class="v">Melting · Soluções em Manutenção Industrial</span></div>
+            <div class="kv-row"><span class="k">Cargo / função</span><span class="v">Assistente comercial</span></div>
+            <div class="kv-row"><span class="k">Nível de acesso</span><span class="v" id="perfil-acesso">Acesso total</span></div>
+            <div class="kv-row"><span class="k">Sistema</span><span class="v">Gestão de Contratos · Fase 1 Piloto</span></div>
+          </div>
+
+          <p class="perfil-note">O nome fica salvo neste navegador. E-mail, empresa, cargo e nível de acesso vêm da sua conta de acesso — para corrigi-los, fale com quem administra o sistema.</p>
+
+          <div class="perfil-actions">
+            <button type="button" class="btn btn-danger" id="btn-sair-perfil">Sair da conta</button>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/vendor/xlsx.full.min.js"></script>
+<script src="js/supabase-client.js"></script>
+<script src="js/parametros.js"></script>
+<script src="js/motor.js"></script>
+<script src="js/kpis.js"></script>
+<script src="js/app.js"></script>
+<script src="js/inteligencia.js"></script>
+</body>
+</html>

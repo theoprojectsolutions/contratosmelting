@@ -1,0 +1,147 @@
+:root{
+  --deep-1:#03080D;
+  --deep-2:#041624;
+  --deep-3:#0A2E4F;
+  --glow-500:#4FB3E0;
+  --glow-300:#8FD4F0;
+  --glow-600:#2E8FD9;
+  --brand-600:#1D7AEF;
+  --brand-700:#1269E5;
+  --ink-0:#FFFFFF;
+  --ink-200:#C7DCEA;
+  --ink-400:#8FAAC0;
+  --red-500:#E2685B;
+}
+*{ box-sizing:border-box; margin:0; padding:0; }
+html,body{ height:100%; }
+body{
+  font-family:'Inter',sans-serif;
+  color:var(--ink-0);
+  min-height:100vh;
+  display:flex; flex-direction:column; align-items:center;
+  position:relative;
+  background:var(--deep-1);
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ===== hero: foto oficial da campanha Melting 70 anos ===== */
+.login-hero{
+  width:100%; height:40vh; min-height:260px; max-height:400px;
+  position:relative; overflow:hidden; flex-shrink:0;
+}
+.login-hero img{
+  width:100%; height:100%; object-fit:cover; object-position:center 45%;
+  display:block;
+}
+.login-hero::after{
+  content:""; position:absolute; inset:0;
+  background:linear-gradient(180deg, rgba(3,8,13,0) 55%, var(--deep-1) 100%);
+}
+
+/* ===== padrão hexagonal sutil, continuando a foto pra baixo ===== */
+.hex-layer{
+  position:absolute; inset:0; z-index:0; opacity:.4;
+  background-image:
+    linear-gradient(30deg, rgba(79,179,224,0.05) 12%, transparent 12.5%, transparent 87%, rgba(79,179,224,0.05) 87.5%, rgba(79,179,224,0.05)),
+    linear-gradient(150deg, rgba(79,179,224,0.05) 12%, transparent 12.5%, transparent 87%, rgba(79,179,224,0.05) 87.5%, rgba(79,179,224,0.05)),
+    linear-gradient(30deg, rgba(79,179,224,0.05) 12%, transparent 12.5%, transparent 87%, rgba(79,179,224,0.05) 87.5%, rgba(79,179,224,0.05)),
+    linear-gradient(150deg, rgba(79,179,224,0.05) 12%, transparent 12.5%, transparent 87%, rgba(79,179,224,0.05) 87.5%, rgba(79,179,224,0.05));
+  background-size:64px 112px;
+  background-position:0 0, 0 0, 32px 56px, 32px 56px;
+  mask-image:radial-gradient(circle at 50% 0%, #000 0%, transparent 70%);
+  pointer-events:none;
+}
+
+/* ===== conteúdo central ===== */
+.login-wrap{
+  position:relative; z-index:2; width:100%; max-width:420px; padding:0 24px 40px;
+  text-align:center; margin-top:-64px;
+}
+
+.login-tag{ font-size:12.5px; color:var(--ink-400); letter-spacing:.04em; text-transform:uppercase; font-weight:600; margin-bottom:18px; }
+
+.badge-pill{
+  display:inline-flex; align-items:center; gap:8px;
+  background:#FFFFFF; border-radius:30px; padding:5px 14px 5px 5px;
+  margin-bottom:16px;
+  box-shadow:0 10px 24px rgba(0,0,0,0.35);
+}
+.badge-pill .icon{
+  width:24px; height:24px; border-radius:50%;
+  background:linear-gradient(160deg, var(--brand-600), var(--brand-700));
+  display:flex; align-items:center; justify-content:center;
+}
+.badge-pill .icon svg{ width:13px; height:13px; }
+.badge-pill span{ font-size:11.5px; font-weight:700; color:var(--brand-700); letter-spacing:.01em; }
+
+.login-card{
+  background:rgba(8,26,46,0.55);
+  border:1px solid rgba(143,212,240,0.18);
+  border-radius:16px;
+  padding:30px 28px 26px;
+  text-align:left;
+  backdrop-filter:blur(14px);
+  box-shadow:0 24px 60px rgba(0,0,0,0.45), 0 0 0 1px rgba(79,179,224,0.05) inset;
+}
+.login-card h1{ font-family:'Archivo',sans-serif; font-size:21px; font-weight:700; margin-bottom:5px; }
+.login-card .sub{ font-size:12.5px; color:var(--ink-400); margin-bottom:24px; }
+
+.field{ margin-bottom:16px; }
+.field label{ display:block; font-size:12px; font-weight:600; color:var(--ink-200); margin-bottom:6px; }
+.input-shell{
+  display:flex; align-items:center; gap:9px;
+  background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.14);
+  border-radius:9px; padding:11px 13px; transition:border-color .15s, background .15s;
+}
+.input-shell:focus-within{ border-color:var(--glow-500); background:rgba(255,255,255,0.08); }
+.input-shell svg{ width:16px; height:16px; color:var(--ink-400); flex-shrink:0; }
+.input-shell input{
+  border:none; background:transparent; outline:none; color:var(--ink-0);
+  font-family:'Inter',sans-serif; font-size:13.5px; width:100%;
+}
+.input-shell input::placeholder{ color:#5F7A8F; }
+.toggle-pass{ background:none; border:none; cursor:pointer; color:var(--ink-400); display:flex; padding:0; }
+.toggle-pass svg{ width:16px; height:16px; }
+
+.row-between{ display:flex; align-items:center; justify-content:space-between; margin:2px 0 22px; }
+.remember{ display:flex; align-items:center; gap:7px; font-size:12px; color:var(--ink-400); }
+.remember input{ width:14px; height:14px; accent-color:var(--brand-600); }
+.forgot-link{ font-size:12px; color:var(--glow-300); text-decoration:none; font-weight:600; }
+.forgot-link:hover{ text-decoration:underline; }
+
+.btn-login{
+  width:100%; padding:12px; border:none; border-radius:9px; cursor:pointer;
+  background:linear-gradient(135deg, var(--brand-600), var(--glow-600));
+  color:#fff; font-family:'Inter',sans-serif; font-size:14px; font-weight:700;
+  box-shadow:0 10px 24px rgba(15,123,196,0.35);
+  transition:filter .15s, transform .1s;
+  display:flex; align-items:center; justify-content:center; gap:8px;
+}
+.btn-login:hover{ filter:brightness(1.08); }
+.btn-login:active{ transform:translateY(1px); }
+.btn-login:disabled{ opacity:.65; cursor:default; }
+.spinner{
+  width:15px; height:15px; border-radius:50%;
+  border:2px solid rgba(255,255,255,0.4); border-top-color:#fff;
+  animation:spin .7s linear infinite; display:none;
+}
+.btn-login.loading .spinner{ display:inline-block; }
+.btn-login.loading .btn-text{ opacity:.85; }
+@keyframes spin{ to{ transform:rotate(360deg); } }
+
+.form-msg{
+  display:none; align-items:center; gap:8px;
+  font-size:12.5px; font-weight:600; padding:10px 12px; border-radius:8px;
+  margin-bottom:16px;
+}
+.form-msg.show{ display:flex; }
+.form-msg.error{ background:rgba(226,104,91,0.12); color:#F3A79E; border:1px solid rgba(226,104,91,0.3); }
+.form-msg.success{ background:rgba(79,179,224,0.12); color:var(--glow-300); border:1px solid rgba(79,179,224,0.3); }
+
+.login-foot{ margin-top:22px; text-align:center; font-size:11.5px; color:var(--ink-400); line-height:1.6; }
+.login-foot b{ color:var(--ink-200); }
+
+@media (max-width:480px){
+  .login-card{ padding:24px 20px 22px; }
+  .login-logo{ width:170px; }
+}

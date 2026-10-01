@@ -1,0 +1,66 @@
+/* =====================================================================
+   MELTING · MÓDULO DE INTELIGÊNCIA — estilos complementares
+   Usa os mesmos tokens do styles.css (claro/escuro automático).
+   ===================================================================== */
+.intel-section-title{ display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin:6px 0 12px; }
+.intel-section-title h3{ font-size:16px; font-weight:800; }
+.intel-section-title span{ font-size:12px; color:var(--ink-500); }
+
+.intel-kpis .value{ font-size:26px; }
+.intel-kpis.compact{ margin:14px 0 18px; }
+.intel-kpis.compact .kpi{ box-shadow:none; padding:14px 14px 12px; }
+.intel-kpis.compact .value{ font-size:20px; }
+.intel-kpi-click{ cursor:pointer; transition:transform .12s, box-shadow .12s; }
+.intel-kpi-click:hover{ transform:translateY(-1px); }
+.intel-kpi-click.ativo{ outline:2px solid var(--brand-600); outline-offset:-2px; }
+
+.intel-muted{ font-size:11.5px; color:var(--ink-500); line-height:1.4; }
+.intel-desc{ max-width:420px; font-size:12.5px; line-height:1.35; }
+.intel-table tbody td{ vertical-align:top; }
+.intel-table td.mono, .intel-table .mono{ font-family:'IBM Plex Mono',monospace; font-size:12px; }
+.intel-table tr.clickable{ cursor:pointer; }
+.intel-table tr.clickable:hover td{ background:var(--surface-tint); }
+
+.intel-panel{ margin-top:18px; }
+.intel-panel-head{ display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap; }
+.intel-panel-head .panel-sub{ margin-top:-8px !important; }
+.intel-actions{ display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap; }
+.intel-inline-field{ display:flex; flex-direction:column; gap:4px; font-size:11.5px; font-weight:600; color:var(--ink-700); }
+.intel-inline-field input{ font-family:'Inter',sans-serif; font-size:12.5px; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:var(--card); color:var(--ink-900); min-width:200px; }
+.intel-note{ margin:12px 0 0; }
+.intel-details{ margin-top:16px; }
+.intel-details summary{ cursor:pointer; font-weight:700; font-size:13px; color:var(--brand-text); margin-bottom:10px; }
+.intel-sub-title{ font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-500); margin:18px 0 10px; }
+.intel-spacer{ flex:1; }
+.intel-grid-even{ grid-template-columns:1fr 1fr; }
+
+.intel-progress{ margin-top:12px; font-size:12px; color:var(--ink-700); }
+.intel-progress .intel-bar{ margin-top:6px; height:6px; border-radius:6px; background:var(--surface-tint); overflow:hidden; }
+.intel-progress .intel-bar-fill{ height:100%; width:0; background:var(--brand-600); transition:width .2s; }
+
+/* tabela de resposta */
+#tbl-rp tr.rp-aprovado td{ background:color-mix(in srgb, var(--green-100) 55%, transparent); }
+.rp-motivo{ max-width:220px; margin-top:4px; }
+.rp-acoes{ white-space:nowrap; }
+.rp-acoes .icon-btn{ font-size:14px; font-weight:700; margin-left:4px; }
+.icon-btn.ok{ color:var(--green-600); border-color:var(--green-600); }
+.icon-btn.ok:hover{ background:var(--green-100); }
+.rp-troca td{ background:var(--surface-tint); }
+.rp-troca-box{ padding:6px 0 4px; }
+.rp-opcao{ display:block; width:100%; text-align:left; font-family:'Inter',sans-serif; font-size:12.5px; color:var(--ink-900);
+  background:var(--card); border:1px solid var(--border); border-radius:8px; padding:8px 10px; margin-bottom:6px; cursor:pointer; }
+.rp-opcao:hover{ border-color:var(--brand-600); }
+.rp-busca-res{ margin-top:8px; max-height:320px; overflow:auto; }
+
+.intel-switch{ display:inline-flex; align-items:center; gap:8px; font-size:13px; color:var(--ink-700); padding:8px 0; }
+.intel-switch input{ width:18px; height:18px; accent-color:var(--brand-600); }
+
+@media (max-width:900px){
+  .intel-grid-even{ grid-template-columns:1fr; }
+  .intel-desc{ max-width:240px; }
+  .intel-actions{ width:100%; }
+  .intel-inline-field input{ min-width:0; width:100%; }
+}
+[hidden]{ display:none !important; }
+.intel-scroll-y{ max-height:620px; overflow:auto; border:1px solid var(--border); border-radius:10px; }
+.intel-scroll-y thead th{ position:sticky; top:0; background:var(--card); z-index:1; }
