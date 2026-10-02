@@ -88,6 +88,7 @@ const Intel = (function(){
       if (reg.sistema) PARAMS = mesclarParams(PARAMS_PADRAO, reg.sistema);
       S.catalogoInfo = Object.assign({}, S.catalogoInfo || {}, reg.catalogo || {});
       S.cortesInfo = reg.cortes || null;
+      S.kitsInfo = reg.kits || null;
       try { localStorage.setItem(PARAMS_STORAGE_KEY, JSON.stringify(PARAMS)); } catch (e){}
       HOJE = dataReferencia();
     } catch (e){ console.warn('[Parâmetros]', e.message || e); }
@@ -136,7 +137,29 @@ const Intel = (function(){
     S.catalogoInfo = Object.assign({}, S.catalogoInfo || {}, { total: S.catalogo.byId.size, ativos: S.catalogo.lista.length, origem });
     S.aprendizado = null;
     await anexarCortes(S.catalogo);
+    await anexarKits(S.catalogo);
     return S.catalogo;
+  }
+  // kits SGM: arquivo do motor -> tabela -> cache
+  async function anexarKits(cat){
+    try {
+      const cache = await IDB.get('kits');
+      const versao = S.kitsInfo && S.kitsInfo.versao;
+      let linhas = (cache && cache.linhas && (!DB_ATIVO || !versao || cache.versao === versao)) ? cache.linhas : null;
+      if (!linhas && DB_ATIVO && versao){
+        try {
+          const { data, error } = await supabaseClient.storage.from('motor').download('kits.json.gz');
+          if (error || !data) throw error || new Error('sem arquivo');
+          linhas = JSON.parse(await new Response(data.stream().pipeThrough(new DecompressionStream('gzip'))).text());
+        } catch (e){
+          const rows = await selectAll('kits', null, 'sgm,produto_id,descricao,componentes,unidade');
+          linhas = rows.map(r => [r.sgm, r.produto_id, r.descricao, r.componentes || [], r.unidade]);
+        }
+        if (linhas && linhas.length) await IDB.set('kits', { versao, linhas });
+      }
+      if (!linhas && cache && cache.linhas) linhas = cache.linhas;
+      if (linhas && linhas.length){ cat.definirKits(linhas); S.kitsLinhas = linhas; }
+    } catch (e){ console.warn('[Kits SGM]', e.message || e); }
   }
   // histórico de cortes (correias planas): arquivo do motor -> tabela -> cache
   async function anexarCortes(cat){
@@ -1044,6 +1067,41 @@ const Intel = (function(){
     } catch (e){ console.error(e); st.textContent = 'Erro: ' + (e.message || e); }
   }
 
+  // kits SGM: relpro_sgm (produtos montados: peça principal + componentes + mão de obra)
+  async function importarKits(files){
+    const st = $('base-kit-status'); const bar = $('base-kit-bar');
+    try {
+      const rows = [];
+      for (const f of files){
+        st.textContent = 'Lendo ' + f.name + '...'; await espera();
+        const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' });
+        rows.push(...XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: null }));
+      }
+      const linhas = Motor.agregarKits(rows);
+      if (!linhas.length){ st.textContent = 'Nenhum kit encontrado — confira se é a exportação relpro_sgm do SIG (colunas sgm, produto, descricao...).'; return; }
+      const versao = new Date().toISOString();
+      if (DB_ATIVO){
+        await emLotes(linhas.map(([sgm, produto_id, descricao, componentes, unidade]) => ({ sgm, produto_id, descricao, componentes, unidade, atualizado_em: versao })), 500, async (l) => {
+          const { error } = await supabaseClient.from('kits').upsert(l, { onConflict: 'sgm' }); if (error) throw error;
+        }, (a, b) => { bar.style.width = (a / b * 90) + '%'; st.textContent = `Gravando kits: ${a.toLocaleString('pt-BR')} de ${b.toLocaleString('pt-BR')}...`; });
+        try {
+          const gz = await gzipJSON(linhas);
+          if (gz){ const { error } = await supabaseClient.storage.from('motor').upload('kits.json.gz', gz, { upsert: true, contentType: 'application/gzip' }); if (error) throw error; }
+        } catch (e){ console.warn('[Kits SGM] não gravou o arquivo do motor (o sistema vai ler da tabela):', e.message || e); }
+        await salvarParametro('kits', { versao, total: linhas.length });
+        S.kitsInfo = { versao, total: linhas.length };
+      }
+      await IDB.set('kits', { versao, linhas });
+      let novos = 0;
+      if (S.catalogo) novos = S.catalogo.definirKits(linhas);
+      S.kitsLinhas = linhas;
+      bar.style.width = '100%';
+      st.textContent = `${linhas.length.toLocaleString('pt-BR')} kits SGM importados${DB_ATIVO ? ' e gravados no banco' : ' (só neste navegador)'}` + (S.catalogo ? ` · ${novos.toLocaleString('pt-BR')} ainda não estavam no cadastro e entraram no motor.` : '.');
+      atualizarStatusBase();
+      showToast('Kits SGM importados');
+    } catch (e){ console.error(e); st.textContent = 'Erro: ' + (e.message || e); }
+  }
+
   // ensinar com planilha já respondida: mapeia código do cliente → ID
   const ENS = { wb: null, matriz: [], cab: 0 };
   async function lerEnsino(file){
@@ -1107,6 +1165,7 @@ const Intel = (function(){
       { l: 'Produtos no catálogo do motor', v: S.catalogo ? S.catalogo.byId.size.toLocaleString('pt-BR') : (ci.total ? ci.total.toLocaleString('pt-BR') : '0'), s: S.catalogo ? `${S.catalogo.lista.length.toLocaleString('pt-BR')} ativos · ${ci.origem || ''}` : (ci.versao ? 'ainda não carregado neste navegador' : 'importe o cadastro abaixo') },
       { l: 'Vendas carregadas', v: S.vendas.length.toLocaleString('pt-BR'), s: datas.length ? dataBR(datas[0]) + ' a ' + dataBR(datas[datas.length - 1]) + ' · só clientes ligados a contratos' : 'ligue os contratos ao cliente no SIG' },
       { l: 'De-para (memória do motor)', v: S.depara.length.toLocaleString('pt-BR'), s: clientesDp.size + ' cliente(s)' },
+      { l: 'Kits SGM', v: ((S.kitsLinhas || []).length || (S.kitsInfo && S.kitsInfo.total) || 0).toLocaleString('pt-BR'), s: (S.kitsLinhas || []).length ? 'produtos montados (relpro_sgm)' : 'importe o relpro_sgm abaixo' },
       { l: 'Cortes de correia plana', v: (S.cortesTotal || (S.cortesInfo && S.cortesInfo.total) || 0).toLocaleString('pt-BR'), s: S.cortesTotal ? 'material × medida (relpro_nita / relpro_mec)' : 'importe o relpro_nita / relpro_mec abaixo' },
       { l: 'Itens de contrato', v: S.itens.length.toLocaleString('pt-BR'), s: new Set(S.itens.map(i => i.contrato_id)).size + ' contrato(s) com itens' }
     ].map(k => `<div class="kpi k-blue"><div class="label">${k.l}</div><div class="value">${k.v}</div><div class="sub">${k.s}</div></div>`).join('');
@@ -1123,6 +1182,7 @@ const Intel = (function(){
     liga('base-cad-file', 'base-cad-dz', importarCadastro);
     liga('base-ven-file', 'base-ven-dz', importarVendas);
     liga('base-cor-file', 'base-cor-dz', importarCortes);
+    liga('base-kit-file', 'base-kit-dz', importarKits);
     liga('ens-file', 'ens-dz', (fs) => lerEnsino(fs[0]).catch(e => showToast('Erro: ' + e.message)));
     const ea = $('ens-aba'); if (ea) ea.addEventListener('change', e => selecionarAbaEnsino(e.target.value));
     const ec = $('ens-cab'); if (ec) ec.addEventListener('change', e => { ENS.cab = Math.max(0, Number(e.target.value) - 1); renderEnsinoMapa(); });
@@ -1215,6 +1275,11 @@ const Intel = (function(){
       linhas: () => (S.cortesLinhas || []).map(([material, base, larg, comp, vezes]) => ({ material, base, larg, comp, vezes })),
       filtro: { nome: 'Nitta e Mectrol', valores: () => ['Plana (Nitta)', 'LL sincronizadora (Mectrol)'], campo: (r) => Motor.parseLL(r.material) ? 'LL sincronizadora (Mectrol)' : 'Plana (Nitta)' },
       colunas: [['Tipo', r => Motor.parseLL(r.material) ? 'LL (Mectrol)' : 'Plana'], ['Material', r => r.material, 'mono'], ['ID base', r => r.base, 'mono'], ['Material base no cadastro', r => descId(r.base)], ['Largura (mm)', r => r.larg || (Motor.parseLL(r.material) || {}).larg || '', 'num'], ['Comprimento (mm)', r => r.comp, 'num'], ['Vezes cortado', r => r.vezes, 'num']]
+    },
+    kits: {
+      titulo: 'Kits SGM', total: () => (S.kitsLinhas || []).length,
+      linhas: () => (S.kitsLinhas || []).map(([sgm, id, desc, comps, um]) => ({ sgm, id, desc, comps: comps || [], um })),
+      colunas: [['SGM', k => k.sgm, 'mono'], ['ID', k => k.id, 'mono'], ['Descrição', k => k.desc], ['Componentes', k => k.comps.map(c => (c[2] && c[2] !== 1 ? c[2] + '× ' : '') + (c[1] || c[0]) + ' [' + c[0] + ']').join(' + ')], ['UN', k => k.um]]
     },
     depara: {
       titulo: 'De-para dos clientes', total: () => S.depara.length,

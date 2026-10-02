@@ -139,13 +139,27 @@ create table if not exists public.cortes (
 create index if not exists cortes_medida_idx on public.cortes (larg, comp);
 
 -- ---------------------------------------------------------------------
+-- 5c) KITS SGM — produtos montados pela Melting (relpro_sgm do SIG):
+--     peça principal + componentes + mão de obra.
+-- ---------------------------------------------------------------------
+create table if not exists public.kits (
+  sgm           int primary key,
+  produto_id    text not null,
+  descricao     text,
+  componentes   jsonb,                      -- [[id, descrição, qtd], ...]
+  unidade       text,
+  atualizado_em timestamptz not null default now()
+);
+create index if not exists kits_produto_idx on public.kits (produto_id);
+
+-- ---------------------------------------------------------------------
 -- 6) SEGURANÇA — mesma regra do resto do sistema:
 --    leitura para qualquer usuário logado, escrita só para admin.
 -- ---------------------------------------------------------------------
 do $$
 declare t text;
 begin
-  foreach t in array array['produtos','vendas','contrato_itens','de_para','parametros','cortes'] loop
+  foreach t in array array['produtos','vendas','contrato_itens','de_para','parametros','cortes','kits'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "Leitura liberada - %s" on public.%I', t, t);
     execute format('drop policy if exists "Inserir só admin - %s" on public.%I', t, t);

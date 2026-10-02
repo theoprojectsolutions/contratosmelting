@@ -481,6 +481,42 @@
     const w = r.slice(pf.length).match(/^(\d{1,3})/); if (!w) return null;
     return { perfil: pf.replace(/^ATN/, 'AT'), larg: +w[1], variante: r.slice(pf.length + w[1].length) };
   }
+  // ---------------- kits SGM (relpro_sgm): produtos montados pela Melting ----------------
+  // linhas: [sgm, produtoId, descricao, componentes[[id, desc, qtd]], unidade]
+  function agregarKits(rows) {
+    const out = [];
+    for (const r of rows || []) {
+      const sgm = Number(r.sgm), id = r.produto;
+      if (!sgm || !id) continue;
+      const comps = [];
+      if (r.proprinc_id) comps.push([String(r.proprinc_id), r.descproprinc || '', Number(r.qtdproprinc) || 0]);
+      for (let i = 1; i <= 10; i++) if (r['pro' + i + '_id']) comps.push([String(r['pro' + i + '_id']), r['descpro' + i] || '', Number(r['qtdpro' + i]) || 0]);
+      if (r.maoobra_id) comps.push([String(r.maoobra_id), r.descmaoobra || 'MAO DE OBRA', Number(r.qtdmaoobra) || 0]);
+      out.push([sgm, String(id).replace(/\.0+$/, ''), String(r.descricao || '').trim(), comps, r.unidade || '']);
+    }
+    return out;
+  }
+  Catalogo.prototype.definirKits = function (linhas) {
+    this._sgm = new Map(); this._kits = new Map(); this._kitsPorPrincipal = new Map();
+    let novos = 0;
+    for (const [sgm, id, desc, comps, um] of linhas || []) {
+      this._sgm.set(Number(sgm), id); this._kits.set(id, { sgm, desc, comps, um });
+      const pr = comps && comps[0] && comps[0][0];
+      if (pr){ if (!this._kitsPorPrincipal.has(pr)) this._kitsPorPrincipal.set(pr, []); this._kitsPorPrincipal.get(pr).push(id); }
+      if (this.byId.has(id)) continue;
+      // kit ainda não está no cadastro importado: entra como produto do motor
+      const d = up(desc.replace(/^SGM\s*0*\d+\s*\*\s*/i, '')).replace(/\s+/g, ' ').trim();
+      const o = { id, d: d + ' (KIT SGM ' + sgm + ')', a: 'SGM' + sgm, ativo: true, origem: 'SGM', um: um || '', familia: 'KIT SGM', ipi: null };
+      this.byId.set(id, o); this.lista.push(o);
+      if (!this.byApelido.has(comp(o.a))) this.byApelido.set(comp(o.a), id);
+      novos++;
+    }
+    if (novos) { this._index = null; this._correias = null; this._planas = null; }
+    return novos;
+  };
+  Catalogo.prototype.porSgm = function (n) { return this._sgm ? this._sgm.get(Number(n)) || null : null; };
+  Catalogo.prototype.kit = function (id) { return this._kits ? this._kits.get(String(id)) || null : null; };
+
   const codPlana = (s) => comp(String(s || '').replace(/^\s*CORREIA\s+/i, '')).replace(/\//g, '');
   Catalogo.prototype.definirCortes = function (linhas) {
     const porCod = new Map(), porMedida = new Map();
@@ -888,9 +924,22 @@
     let ref = String(item.ref || '').trim();
     if (!ref || /^(NONE|N\/A|-|NAN)$/i.test(ref)) ref = '';
     const cod = String(item.codCliente || '').trim();
-    const res = (id, metodo, confianca, motivo, score, extra) => Object.assign({
-      produto_id: id ? String(id) : null, metodo, confianca, motivo, score: score == null ? null : Math.round(score * 100) / 100
-    }, extra || {});
+    const res = (id, metodo, confianca, motivo, score, extra) => {
+      const r = Object.assign({ produto_id: id ? String(id) : null, metodo, confianca, motivo, score: score == null ? null : Math.round(score * 100) / 100 }, extra || {});
+      // a peça sugerida é a principal de algum kit SGM? oferece o kit montado como alternativa
+      let ks = null;
+      if (id && cat._kitsPorPrincipal && cat._kitsPorPrincipal.size) {
+        // a própria peça ou outra versão dela (só corpo x completa) como principal de um kit
+        const p0 = cat.get(id); const irmas = p0 && /^C?(?:U|J|T)[A-Z]{1,2}\d/.test(comp(p0.a)) ? cat.versoesTubo(p0) : [p0];
+        ks = [].concat(...irmas.filter(Boolean).map(x => cat._kitsPorPrincipal.get(String(x.id)) || []));
+      }
+      if (ks && ks.length) {
+        const kAlt = ks.slice(0, 4).filter(k => k !== String(id) && cat.get(k)).map(k => { const kk = cat.kit(k); return { id: k, score: null, recusa: 'kit SGM ' + kk.sgm + ' (' + kk.comps.slice(1).map(c => c[1]).filter(x => !/MAO ?DE ?OBRA/.test(up(x))).join(' + ').slice(0, 60) + ')' }; });
+        r.alternativas = kAlt.concat(r.alternativas || []).slice(0, 8);
+        if (kAlt.length) r.motivo += ' — existe kit SGM montado com essa peça (ver alternativas)';
+      }
+      return r;
+    };
     const ok = (p) => p && p.ativo;
 
     // 1) de-para
@@ -904,6 +953,12 @@
       if (ok(cat.get(h.id))) return res(h.id, 'historico', 'alta', 'Mesmo código do cliente já vendido' + (h.cliente ? ' para ' + h.cliente : '') + (h.data ? ' (último pedido ' + h.data + ')' : ''));
     }
     const alternativas = [];
+    // 3a) kit SGM citado no REF ou na descrição
+    const sgmM = (ref + ' ' + det).match(/\bSGM\s*[-:]?\s*0*(\d{3,6})\b/);
+    if (sgmM && cat.porSgm) {
+      const id = cat.porSgm(sgmM[1]);
+      if (id && ok(cat.get(id))) return res(id, 'apelido', 'alta', 'Kit SGM ' + sgmM[1] + ' citado no pedido');
+    }
     // 3) REF idêntico
     const r = comp(ref);
     const kit = /\+/.test(ref.replace(/PA\s*[+-]\s*AA/gi, '')); // REF com mais de um item ("PA+AA" = porca + anel do próprio item, não conta)
@@ -1036,7 +1091,7 @@
   const Motor = {
     deacc, up, comp, norm, tofrac, sizes, sideSpec, terminalRule, adapterRule, travas, threads, types, toks,
     Catalogo, Aprendizado, sugerir, medidasDescricaoOk, PADRAO, bitolaCliente,
-    conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule, parsePlana, correiaPlanaRule, agregarCortes, parseLL
+    conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule, parsePlana, correiaPlanaRule, agregarCortes, parseLL, agregarKits
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = Motor;
   else root.Motor = Motor;

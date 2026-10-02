@@ -19,7 +19,7 @@ Edge Function). Idioma da interface, do código e dos comentários: português.
 
 ## Regras do banco
 - RLS: leitura para qualquer usuário autenticado; escrita só `public.is_admin()` (papéis `admin` / `gerente` em `perfis`).
-- Tabelas novas: `produtos`, `vendas`, `contrato_itens`, `de_para`, `parametros`, `cortes`; coluna `contratos.codigos_cliente`; bucket `motor` (arquivo `catalogo.json.gz`); visões `vw_consumo_item`, `vw_fora_do_contrato`; função `venda_do_contrato(lista, codigo, nome)`.
+- Tabelas novas: `produtos`, `vendas`, `contrato_itens`, `de_para`, `parametros`, `cortes`, `kits`; coluna `contratos.codigos_cliente`; bucket `motor` (arquivo `catalogo.json.gz`); visões `vw_consumo_item`, `vw_fora_do_contrato`; função `venda_do_contrato(lista, codigo, nome)`.
 - Supabase pagina em 1000 linhas: sempre usar `selectAll()` em `inteligencia.js`.
 - O banco ao vivo tem colunas que não estão nos .sql do repositório (ex.: `itens_cotados`, `valor_cotado`, `periodo`, `situacao`, tabelas `cotacao_itens` e `auditoria`). Não remover.
 
@@ -39,6 +39,7 @@ Referência de qualidade (Arcelor, itens com ID já preenchido pelo Kayan, usand
 - Conexão de tubo existe "só corpo" e "completa" (PA+AA) no cadastro; a descrição SAP não diz qual. O motor agrupa as versões (`versoesTubo`) e escolhe pela preferência do cliente aprendida no de-para (`prefCorpo`: ≥60% só corpo → só corpo). A Arcelor compra só corpo (~70%).
 - Correias: `node --max-old-space-size=4096 dev/testes/benchmark_correias.js ["descrição do cliente" ...]` (usa `dev/dados/cat.json`). Referência com o cadastro de correias de 23/09: 40.549 de 66.517 correias lidas (as não lidas são quase todas planas/transportadoras Nitta, Maxbelt, variadoras VDM); auto-teste 24.329 / 24.337.
 - Correias planas: `node --max-old-space-size=6000 dev/testes/benchmark_planas.js ["descrição" ...]` (usa `dev/dados/relpro_nita.json` / `relpro_mec.json` + `cat.json`). Referência: 8.275 / 8.464 (97,8%); falhas = códigos de material sem número (TA, GMTA), que vão para alternativas.
+- Kits SGM: `node --max-old-space-size=6000 dev/testes/benchmark_kits.js` (usa `dev/dados/relpro_sgm.json`). relpro_sgm = kit montado (peça principal "só corpo" + PA + AA / componentes + mão de obra); `definirKits` põe no catálogo os kits que não estão no cadastro (apelido `SGM<n>`); passo 3a: "SGM nnnn" no REF/descrição → ID do kit; toda sugestão cuja peça (ou versão só corpo/completa) é principal de um kit oferece o kit nas alternativas. Arcelor: COM REF 54/55; SEM REF o kit certo aparece nas alternativas em 20/55.
 - `relpro_ftm` (composição das FTM: mangueira + terminais + capa) ainda não usado — o .xls antigo corta em 16.384 linhas; precisa da exportação completa. Decisão pendente do usuário: responder mangueira montada por componentes ou por FTM existente.
 - Motor: `node dev/testes/gerar_dados_teste.js <pasta com cad_produtos>` e depois `node --max-old-space-size=4096 dev/testes/benchmark_motor.js` (usa `dev/dados/arc.json`, gabarito da Arcelor).
 - SQL: `npm i @electric-sql/pglite && node dev/testes/teste_sql.mjs` (roda todos os .sql com stubs de auth/storage e testa as visões). O erro em `colunas-adicionais.sql` com os dados de exemplo é pré-existente.
