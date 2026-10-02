@@ -73,7 +73,7 @@ create table if not exists public.contrato_itens (
   produto_id        text,
   status            text not null default 'pendente'
                     check (status in ('pendente','sugerido','aprovado','sem_cadastro','rejeitado')),
-  metodo            text,   -- de-para, historico, apelido, regra, ref-similar, aprendido, descricao, ia, manual
+  metodo            text,   -- de-para, historico, apelido, regra, regra-sap, ref-similar, aprendido, descricao, ia, manual
   confianca         text,   -- alta, media, baixa, sem_cadastro
   score             numeric,
   motivo            text,

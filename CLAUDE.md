@@ -29,12 +29,13 @@ Edge Function). Idioma da interface, do código e dos comentários: português.
 - `relpro_ftm.xls` / `theo.xls`: base de mangueiras montadas (FTM: mangueira + terminais + capa + acessórios). O usuário quer que as respostas usem os **IDs gerais do cadastro**; FTM serve só de referência.
 
 ## Motor de resposta (`js/motor.js`)
-Ordem: 1) de-para do cliente → 2) histórico de vendas pelo código do item → 3) REF = apelido idêntico → 4) regras de terminal/adaptador hidráulico → 5) equivalente ao REF por similaridade (tf-idf de trigramas/quadrigramas) → 6) padrão aprendido (troca de bitola) → 7) descrição (desligado por padrão).
+Ordem: 1) de-para do cliente → 2) histórico de vendas pelo código do item → 3) REF = apelido idêntico → 4) regras de terminal/adaptador hidráulico → 4b) sem REF: `refSintetico()` monta o REF pela descrição SAP (conexões de tubo Ermeto/DIN: prefixo Ermeto + tubo + série L/S + rosca; conexões galvanizadas Tupy) → 5) equivalente ao REF por similaridade (tf-idf de trigramas/quadrigramas) → 6) padrão aprendido (troca de bitola) → 7) descrição (desligado por padrão).
 Toda sugestão por semelhança passa por `travas()`: material (inox exige candidato inox; latão; PVC), padrão de rosca (NPT ≠ BSP ≠ UNF; JIC/ORFS = grupo UNF), tipo de peça, medidas do REF, número de pontas, prefixo e diâmetro de conexão de tubo (UMI/UMA/JMI…, `C`+prefixo = só corpo), macho/fêmea, marca, código camlock (AE/CI…). "PA+AA" no REF é porca+anel do próprio item, não kit.
 Convenções de apelido: terminal `{dashMangueira}G{dashRosca}{TIPO}[45|90]SML` (FJX, FFORX, FBSPORX, FDLORX/FDHORX, MP, MBSPP, MJ, MLSP, FL/FLH, FP); adaptador `{dash}{TIPO}{dash}{TIPO}[ângulo]` (ex.: 12MJ12MBSPP).
 Referência de qualidade (Arcelor, itens com ID já preenchido pelo Kayan, usando o REF dele): 87% respondidos, **96,8% de acerto**; sem REF a descrição SAP sozinha não resolve (por isso de-para + IA). Rodar `dev/testes/benchmark_motor.js` antes e depois de mexer nas travas.
 
 ## Testes
+- Regras sem REF: `node dev/testes/benchmark_sem_ref.js` (só precisa do `dev/dados/arc.json`; catálogo de teste = REFs do Kayan). Referência: 95 itens sugeridos sem REF, 85 certos (89,5%); os erros restantes são quase todos itens que o Kayan cotou com código SGM.
 - Motor: `node dev/testes/gerar_dados_teste.js <pasta com cad_produtos>` e depois `node --max-old-space-size=4096 dev/testes/benchmark_motor.js` (usa `dev/dados/arc.json`, gabarito da Arcelor).
 - SQL: `npm i @electric-sql/pglite && node dev/testes/teste_sql.mjs` (roda todos os .sql com stubs de auth/storage e testa as visões). O erro em `colunas-adicionais.sql` com os dados de exemplo é pré-existente.
 - Navegador: servir a pasta (`python3 -m http.server 8765`) e rodar `python3 dev/testes/teste_navegador.py` (Playwright; troca o supabase-js do CDN por `dev/testes/mock-supabase.js`, banco em memória). Precisa dos .xls do SIG e das planilhas da Arcelor/Trivium em `dev/testes/files/`.
@@ -47,6 +48,6 @@ Referência de qualidade (Arcelor, itens com ID já preenchido pelo Kayan, usand
 
 ## Próximos passos possíveis
 - Publicar a Edge Function e medir a IA com itens reais sem REF.
-- Regras dedicadas para itens sem REF frequentes (conexões galvanizadas Tupy, conexões de tubo por descrição SAP, mangueiras por construção/pressão) — já prototipadas em Python antes, ainda não portadas.
+- Regras para itens sem REF: conexões de tubo e Tupy já portadas (`refSintetico`); faltam mangueiras por construção/pressão e engates camlock (CI/AE…).
 - Precificação da montagem (mangueira + terminais + capa + mão de obra, com impostos do item principal).
 - Ligar o Power BI nas visões `vw_consumo_item` / `vw_fora_do_contrato`.

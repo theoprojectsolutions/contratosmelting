@@ -9,6 +9,8 @@
 //   2. Histórico de vendas (mesmo código do cliente já vendido)
 //   3. REF / apelido idêntico ao cadastro
 //   4. Regras de terminal e adaptador hidráulico (monta o apelido SML)
+//   4b. Sem REF: monta o REF pela descrição SAP (conexões de tubo Ermeto/DIN,
+//       conexões galvanizadas Tupy)
 //   5. Equivalente ao REF no cadastro (similaridade + travas)
 //   6. Padrão aprendido (item parecido já aprovado, troca só a bitola)
 //   7. Similaridade pela descrição (só com travas e nota alta)
@@ -221,6 +223,126 @@
     for (const c of codes) { const id = lookup(c); if (id) return { id, apelido: c }; }
     return null;
   }
+
+  // ---------------- regras para itens sem REF (descrição SAP -> REF sintético) ----------------
+  // Montam um "REF" no padrão Melting a partir dos campos da descrição SAP.
+  // Calibradas na planilha da Arcelor (REF do Kayan como gabarito).
+  function fracSap(s) { return tofrac(String(s).replace(/-/g, ' ').replace(/(\d)\.(\d\/)/, '$1 $2')); }
+  // séries DIN 2353: tubo -> rosca métrica da porca
+  const SERIE_L = { 6: 12, 8: 14, 10: 16, 12: 18, 15: 22, 18: 26, 22: 30, 28: 36, 35: 45, 42: 52 };
+  const SERIE_S = { 6: 14, 8: 16, 10: 18, 12: 20, 14: 22, 16: 24, 20: 30, 25: 36, 30: 42, 38: 52 };
+  const POL = [[1/8,'1/8'],[1/4,'1/4'],[3/8,'3/8'],[1/2,'1/2'],[3/4,'3/4'],[1,'1'],[1.25,'11/4'],[1.5,'11/2'],[2,'2'],[2.5,'21/2'],[3,'3'],[4,'4']];
+  function polStr(v) { if (v == null) return null; for (const [k, s] of POL) if (Math.abs(k - v) < 0.01) return s; return null; }
+
+  function materialLetra(t) {
+    if (/INOX|AISI|\b316\b|\b304\b/.test(t)) return 'I';
+    if (/LATAO|BRONZE/.test(t)) return 'C';
+    return 'A';
+  }
+
+  // ---------- conexões de tubo (Ermeto / DIN 2353) ----------
+  function conexaoTubo(det) {
+    const t = up(det).replace(/\s+/g, ' ');
+    const erm = t.match(/\b(?:ERMETO|KONNECT\s*LH)\s*:?\s*(C?(?:U[MFSDCO]|J[IM]|T[IM]|CI|P)[AIC]?)(?![A-Z])\s*-?\s*(\d{1,2})?(?:[,.]0)?\s*([LS](?![A-Z]))?\s*(?:X\s*(\d+(?:[.\s-]\d\/\d+)?(?:\/\d+)?)\s*"?\s*(NPT|BSP))?/);
+    const tipo = t.match(/^(UNIAO|JOELHO|COTOVELO|TEE?|CRUZETA|PORCA|ADAPTADOR|CONECTOR|DESCRICAO)\b/) || (erm ? [null, 'UNIAO'] : null);
+    if (!tipo) return null;
+    const tuboM = t.match(/DIAMETRO EXTERNO (?:DO )?TUBO(?: \(?[AB]\)?)?\s*:?\s*(\d{1,2})(?:,0+)?\s*MM/) || t.match(/\bD\.?\s?E\.?\s*:?\s*(\d{1,2})(?:,0+)?\s*MM/) ||
+      t.match(/\bTUBO\s*(?:OD\s*)?(\d{1,2})\s*MM/) || t.match(/DIAMETRO NOMINAL\s*:?\s*(\d{1,2})(?:,0+)?\s*MM(?!\s*X)/);
+    let tubo = erm && erm[2] ? +erm[2] : (tuboM ? +tuboM[1] : null);
+    if (!tubo) { const mt = t.match(/DIAMETRO NOMINAL\s*:?\s*(\d{2})\s*MM\s*X\s*[12][,.]/); if (mt) { const th = +mt[1]; for (const [k, v] of Object.entries(SERIE_S)) if (v === th) tubo = +k; if (!tubo) for (const [k, v] of Object.entries(SERIE_L)) if (v === th) tubo = +k; } }
+    if (!tubo) return null;
+    let pf = erm ? erm[1].replace(/^C(?=[A-Z]{3})/, '') : null;
+    if (pf === 'UCC') pf = 'UDC';
+    const temRosca = /\b(NPT|BSP)/.test(t);
+    const ext = (t.match(/EXTREMIDADE ?\(?S?\)?\s*:?\s*([A-Z\- ]+?)\s*(?:;|ROSCA|DIAM|$)/) || [, ''])[1];
+    const mat = materialLetra(t);
+    if (!pf || pf.length < 3) {
+      // sem código Ermeto: monta pelo tipo + extremidade + material
+      const tp = tipo[1];
+      let a = null, b = null;
+      if (tp === 'PORCA') { a = 'P'; b = ''; }
+      else if (tp === 'CRUZETA') { a = 'C'; b = 'I'; }
+      else if (/^TE/.test(tp)) { a = 'T'; b = /MACHO/.test(ext) && temRosca ? 'M' : 'I'; }
+      else if (/JOELHO|COTOVELO/.test(tp)) { a = 'J'; b = /MACHO/.test(ext) && temRosca ? 'M' : 'I'; }
+      else { a = 'U'; b = /ORIENTAVEL/.test(t) ? 'O' : (/MACHO/.test(ext) || /^[^;]*\bMACHO\b/.test(t) || /CONEXAO\s*:\s*MACHO/.test(t)) ? 'M' : /FEMEA/.test(ext) && !/FEMEA-FEMEA/.test(ext) ? 'F' : /TUBO-ENCAIXE SOLDA|^SOLDA/.test(ext) ? 'S' : /DUPLA.*COMPRIDA/.test(t) ? 'C' : 'D'; }
+      pf = a + b + (a === 'P' ? (mat === 'I' ? 'I' : 'A') : mat);
+    }
+    // rosca (para M / F / O)
+    let rosca = null;
+    if (/^[UJT][MFO]/.test(pf)) {
+      let v = null, std = null;
+      if (erm && erm[4]) { const x = erm[4].replace(/^(\d)(\d\/\d+)$/, '$1 $2').replace(/^([1357])([248]|16)$/, '$1/$2'); v = fracSap(x); std = erm[5]; }
+      if (v == null) {
+        const dn = t.match(/DIAMETRO NOMINAL\s*:?\s*(\d+(?:[.\s-]\d\/\d+)?(?:\/\d+)?)\s*(?:POL|")/);
+        if (dn) v = fracSap(dn[1]);
+        const r = t.match(/ROSCA\s*:?\s*(NPTF?|BSPP?|BSPT)/) || t.match(/\b(NPT|BSP)\b/);
+        std = r ? r[1].slice(0, 3) : null;
+      }
+      if (v == null || !std) {
+        const g = t.match(/(\d+(?:[.\s-]\d\/\d+)?(?:\/\d+)?)\s*(?:POL|")?\s*(NPT|BSP)/);
+        if (g) { v = fracSap(g[1]); std = g[2]; }
+      }
+      const ps = polStr(v);
+      if (ps && std) rosca = ps + std;
+    }
+    // série: explícita, pela rosca métrica, ou pelo tubo
+    let series = [];
+    const sx = (erm && erm[3]) || (t.match(new RegExp('\\b' + tubo + '\\s*([LS])\\b')) || [])[1];
+    const mmx = t.match(/\bM\s?(\d{2})\s*X\s*[12][,.]/) || t.match(/DIAMETRO NOMINAL\s*:?\s*(\d{2})\s*X\s*[12][,.]/);
+    const mm = mmx;
+    const sTxt = /SERIE PESAD|PESADA|PESADO/.test(t) ? 'S' : /SERIE LEVE/.test(t) ? 'L' : null;
+    if (sx) series = [sx];
+    else if (sTxt) series = [sTxt];
+    else if (mm && SERIE_L[tubo] === +mm[1]) series = ['L'];
+    else if (mm && SERIE_S[tubo] === +mm[1]) series = ['S'];
+    else if (SERIE_L[tubo] && !SERIE_S[tubo]) series = ['L'];
+    else if (SERIE_S[tubo] && !SERIE_L[tubo]) series = ['S'];
+    else {
+      const p = +((t.match(/PRESSAO(?: DE TRABALHO)?\s*:?\s*(\d{2,3})\s*BAR/) || [])[1] || 0);
+      series = p >= 400 ? ['S', 'L'] : ['L', 'S'];
+    }
+    const refs = series.map(s => {
+      const m = (s === 'L' ? SERIE_L : SERIE_S)[tubo];
+      return pf + tubo + s + (rosca ? 'X' + rosca : '') + (m && pf[0] !== 'P' ? '(M' + m + ')' : '') + (pf[2] === 'I' ? 'INOX316' : '');
+    });
+    return { tipo: 'tubo', pf, tubo, series, rosca, refs };
+  }
+
+  // ---------- conexões galvanizadas / ferro maleável (Tupy) ----------
+  function conexaoGalvanizada(det) {
+    const t = up(det).replace(/\s+/g, ' ');
+    if (!/FERRO MALEAVEL|TUPY/.test(t) && !(/GALVANIZ|ZINCADO/.test(t) && !/\bACO\b/.test(t))) return null;
+    if (/INOX|LATAO|PVC|ERMETO|ENGATE|MANGUEIRA|SCH ?80|ASTM A ?105|JIC|UNF/.test(t)) return null;
+    const head = t.slice(0, 40);
+    let tipo = null;
+    if (/^NIPLE DUPLO/.test(t)) tipo = 'NIPLE DUPLO';
+    else if (/^NIPLE/.test(t)) tipo = 'NIPLE';
+    else if (/^LUVA/.test(t)) tipo = /REDUCAO/.test(head) ? 'LUVA REDUCAO' : 'LUVA';
+    else if (/^BUCHA/.test(t)) tipo = 'BUCHA REDUCAO';
+    else if (/^(JOELHO|COTOVELO|CURVA)/.test(t)) tipo = 'COTOVELO';
+    else if (/^TEE?\b/.test(t)) tipo = 'TE';
+    else if (/^BUJAO/.test(t)) tipo = 'BUJAO';
+    else if (/^(TAMPAO|CAP)\b/.test(t)) tipo = 'TAMPAO';
+    else if (/^UNIAO/.test(t) && /FEMEA|ASSENTO/.test(t)) tipo = 'UNIAO';
+    if (!tipo) return null;
+    const std = (t.match(/\b(NPT|BSP)/) || [, 'BSP'])[1];
+    const F = '(\\d+(?:[.\\s-]\\d\\/\\d+)?(?:\\/\\d+)?)';
+    let med = [];
+    let m = t.match(new RegExp('DIAMETRO NOMINAL\\s*:?\\s*' + F + '\\s*(?:POL|")?\\s*X\\s*' + F + '\\s*(?:POL|")'));
+    if (m) med = [m[1], m[2]];
+    else if ((m = t.match(new RegExp('DIAMETRO MENOR\\s*:?\\s*' + F + '.*?DIAMET ?R ?O MAIOR\\s*:?\\s*' + F)))) med = [m[2], m[1]];
+    else if ((m = t.match(new RegExp('DIAMETRO(?: NOMINAL)?\\s*:?\\s*' + F + '\\s*(?:POL|")')))) med = [m[1]];
+    med = med.map(x => polStr(fracSap(x))).filter(Boolean);
+    if (!med.length) return null;
+    if (/REDUCAO/.test(tipo) && med.length === 2 && fracSap(med[0].replace(/^(\d)(\d\/)/, '$1 $2')) < fracSap(med[1].replace(/^(\d)(\d\/)/, '$1 $2'))) med.reverse();
+    const mf = /MACHO[-\/ ]?FEMEA|EXTREMIDADE\(?S?\)?\s*:?\s*MACHO/.test(t) && /COTOVELO|LUVA/.test(tipo) ? 'MF' : '';
+    const ang = tipo === 'COTOVELO' || tipo === 'TE' ? (/\b45\b/.test(t) ? 'X45º' : 'X90º') : '';
+    const nome = tipo.replace(/^(COTOVELO|LUVA)/, '$1' + (mf ? ' ' + mf : ''));
+    const refs = [nome + ' ' + med.join('X') + ang + ' ' + std + ' TUPY', nome + ' ' + med.join('X') + ang + ' TUPY ' + std];
+    if (std === 'BSP') refs.push(nome + ' ' + med.join('X') + ang + ' TUPY'); // BSP é o padrão do Tupy
+    return { tipo: 'galvanizada', refs };
+  }
+  function refSintetico(det) { return conexaoTubo(det) || conexaoGalvanizada(det); }
 
   // ---------------- travas (arcfill2.strict) ----------------
   function toks(s) {
@@ -521,6 +643,7 @@
     simDescricao: 0.62,    // nota mínima para sugerir só pela descrição
     simAprendido: 0.9,     // nota mínima para padrão aprendido
     usarDescricao: false,  // sugerir só pela descrição (fraco em textos SAP longos — melhor usar a IA)
+    regrasSap: true,       // sem REF: montar o REF pela descrição SAP (conexões de tubo, Tupy)
     travas: { material: true, rosca: true, tipo: true, medidas: true }
   };
 
@@ -568,6 +691,31 @@
       const x = rule(det, look);
       if (x && !travas(cat.get(x.id), ref, det, Object.assign({}, tr, { tipo: false }))) return res(x.id, 'regra', 'media', 'Montado pela ' + nome + ' (' + x.apelido + ')');
     }
+    // 4b) sem REF: monta um REF a partir da descrição SAP (conexões de tubo, Tupy)
+    if (!r && P.regrasSap !== false) {
+      const sx = refSintetico(det);
+      if (sx) {
+        const certo = sx.tipo !== 'tubo' || sx.series.length === 1;
+        for (const rs of sx.refs) {
+          const idx = cat.lookupApelido(rs);
+          if (idx && !travas(cat.get(idx), rs, det, tr)) return res(idx, 'regra-sap', certo ? 'media' : 'baixa', 'REF montado da descrição (' + rs + ')' + (certo ? '' : ' — série L/S não informada, conferir'));
+        }
+        // trava com o REF sem rosca métrica / sufixo (a série pode faltar no cadastro)
+        const curto = (s) => s.replace(/\(M\d+\)|INOX316$/g, '');
+        const vistos = new Set();
+        const semRosca = sx.tipo === 'tubo' && /^[UJT][MFO]/.test(sx.pf) && !sx.rosca;
+        for (const rs of semRosca ? [] : sx.refs) {
+          for (const c of cat.buscar(rs, 12)) {
+            if (c.score < P.simRef || vistos.has(c.prod.id)) continue;
+            vistos.add(c.prod.id);
+            const motivo = travas(c.prod, curto(rs), det, tr) ||
+              (/NPT/.test(rs) && !/NPT|\dMP|\dFP/.test(c.prod.d + ' ' + c.prod.a) ? 'rosca NPT não confirmada no cadastro' : null);
+            if (!motivo) return res(c.prod.id, 'regra-sap', 'baixa', 'Parecido com o REF montado da descrição (' + rs + ') — conferir', c.score, { alternativas: alternativas.slice(0, 5) });
+            alternativas.push({ id: c.prod.id, score: Math.round(c.score * 100) / 100, recusa: motivo });
+          }
+        }
+      }
+    }
     // 5) equivalente ao REF
     if (r && r.length >= 4 && !/^\d+$/.test(r)) {
       for (const c of cat.buscar(r, 12)) {
@@ -599,7 +747,8 @@
 
   const Motor = {
     deacc, up, comp, norm, tofrac, sizes, sideSpec, terminalRule, adapterRule, travas, threads, types, toks,
-    Catalogo, Aprendizado, sugerir, medidasDescricaoOk, PADRAO, bitolaCliente
+    Catalogo, Aprendizado, sugerir, medidasDescricaoOk, PADRAO, bitolaCliente,
+    conexaoTubo, conexaoGalvanizada, refSintetico
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = Motor;
   else root.Motor = Motor;
