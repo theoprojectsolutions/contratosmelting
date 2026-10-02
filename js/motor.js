@@ -258,14 +258,19 @@
     const ext = (t.match(/EXTREMIDADE ?\(?S?\)?\s*:?\s*([A-Z\- ]+?)\s*(?:;|ROSCA|DIAM|$)/) || [, ''])[1];
     const mat = materialLetra(t);
     if (!pf || pf.length < 3) {
-      // sem código Ermeto: monta pelo tipo + extremidade + material
+      // sem código Ermeto: monta pelo tipo + extremidade + material — só para
+      // tubo métrico (DIN 2353); fora pneumática, push-in, PP e tubo em polegada (OD)
+      if (!tuboM || /PNEUMAT|PUSH|INSTANTAN|ENGATE|POLIPROP|\bPP\b|PVC|\bOD\b|SWAGELOK|\bFSS\b|PLASTICO|ACETAL|NYLON|POLIAMIDA|\bPU\b/.test(t)) return null;
+      const pBar = +((t.match(/PRESSAO[^;]*?(\d{1,3})\s*(?:BAR|KGF)/) || [])[1] || 0);
+      if (pBar && pBar <= 20) return null; // pneumática
       const tp = tipo[1];
       let a = null, b = null;
       if (tp === 'PORCA') { a = 'P'; b = ''; }
       else if (tp === 'CRUZETA') { a = 'C'; b = 'I'; }
       else if (/^TE/.test(tp)) { a = 'T'; b = /MACHO/.test(ext) && temRosca ? 'M' : 'I'; }
       else if (/JOELHO|COTOVELO/.test(tp)) { a = 'J'; b = /MACHO/.test(ext) && temRosca ? 'M' : 'I'; }
-      else { a = 'U'; b = /ORIENTAVEL/.test(t) ? 'O' : (/MACHO/.test(ext) || /^[^;]*\bMACHO\b/.test(t) || /CONEXAO\s*:\s*MACHO/.test(t)) ? 'M' : /FEMEA/.test(ext) && !/FEMEA-FEMEA/.test(ext) ? 'F' : /TUBO-ENCAIXE SOLDA|^SOLDA/.test(ext) ? 'S' : /DUPLA.*COMPRIDA/.test(t) ? 'C' : 'D'; }
+      else { const rPol = /\d\/\d+\s*(?:POL|")?\s*(?:NPT|BSP)|(?:NPT|BSP)[^;]*?DIAMETRO NOMINAL\s*:?\s*\d[\d\s.\/]*\s*POL|ROSCA\s*:?\s*(?:NPT|BSP)/.test(t);
+        a = 'U'; b = /ORIENTAVEL/.test(t) ? 'O' : (/MACHO/.test(ext) || /^[^;]*\bMACHO\b/.test(t) || /CONEXAO\s*:\s*MACHO/.test(t) || (rPol && !/FEMEA/.test(ext))) ? 'M' : /FEMEA/.test(ext) && !/FEMEA-FEMEA/.test(ext) ? 'F' : /TUBO-ENCAIXE SOLDA|^SOLDA/.test(ext) ? 'S' : /DUPLA.*COMPRIDA/.test(t) ? 'C' : 'D'; }
       pf = a + b + (a === 'P' ? (mat === 'I' ? 'I' : 'A') : mat);
     }
     // rosca (para M / F / O)
@@ -343,6 +348,35 @@
     if (std === 'BSP') refs.push(nome + ' ' + med.join('X') + ang + ' TUPY'); // BSP é o padrão do Tupy
     return { tipo: 'galvanizada', refs };
   }
+  // conexão de tubo: a mesma peça existe "só corpo" e "completa" (com porca PA + anel AA)
+  const RX_CORPO = /-?\s*(?:SO\s*)?CORPO|\(?CORPO\s*SEM\s*PA\+?AA\)?/;
+  function baseTubo(ap) { return comp(ap).replace(/(?:COPOR|CORPO)SEMPA\+?AA|SOCORPO|CORPO|\+?PA\+?AA|COMPLETA?/g, ''); }
+  const ehCorpo = (o) => RX_CORPO.test(o.d + ' ' + o.a) && !/PA\s*\+\s*AA(?!\))/.test(o.a.replace(/SEMPA\+AA/, ''));
+  Catalogo.prototype.versoesTubo = function (o) {
+    if (!this._vtubo) {
+      this._vtubo = new Map();
+      for (const p of this.lista) {
+        if (!/^C?(?:U[MFSDCO]|J[IM]|T[IM]|CI|P)[AIC]?\d/.test(comp(p.a))) continue;
+        const k = baseTubo(p.a).replace(/^C(?=[A-Z]{3}\d)/, '');
+        if (!this._vtubo.has(k)) this._vtubo.set(k, []);
+        this._vtubo.get(k).push(p);
+      }
+    }
+    return this._vtubo.get(baseTubo(o.a).replace(/^C(?=[A-Z]{3}\d)/, '')) || [o];
+  };
+  // preferência do cliente (só corpo x completa) aprendida no de-para dele
+  function prefCorpo(ctx) {
+    if (ctx._prefCorpo !== undefined) return ctx._prefCorpo;
+    let c = 0, n = 0;
+    if (ctx.depara) for (const id of ctx.depara.values()) {
+      const p = ctx.catalogo.get(id); if (!p || !/^C?(?:U|J|T)[A-Z]{1,2}\d/.test(comp(p.a))) continue;
+      if (ctx.catalogo.versoesTubo(p).length < 2) continue;
+      n++; if (ehCorpo(p)) c++;
+    }
+    ctx._prefCorpo = n >= 3 ? (c / n >= 0.6 ? true : (c / n <= 0.4 ? false : null)) : null;
+    return ctx._prefCorpo;
+  }
+
   function refSintetico(det) { return conexaoTubo(det) || conexaoGalvanizada(det); }
 
   // ---------------- correias (sincronizadora, micro-V, em V / power band) ----------------
@@ -441,6 +475,8 @@
     if (inox && !/INOX|316|304|FSS/.test(c)) return false;
     if (!inox && /INOX|FSS/.test(c)) return false;
     if (inox && /LATAO/.test(c)) return false;
+    // inox 316 pedido: candidato que diz só 304 não serve
+    if (/316/.test(x) && /304/.test(c) && !/316/.test(c)) return false;
     // latão pedido: recusa só se o candidato disser outro material
     if (/LATAO/.test(x) && !inox && /\bACO\b|ZINC|GALV|PVC|NYLON|POLIPROP/.test(c) && !/LATAO|LAT\b/.test(c)) return false;
     return true;
@@ -780,9 +816,18 @@
       const sx = refSintetico(det);
       if (sx) {
         const certo = sx.tipo !== 'tubo' || sx.series.length === 1;
+        // escolhe entre "só corpo" e "completa" pela preferência do cliente; a outra vai como alternativa
+        const versao = (id, conf, motivo, score) => {
+          let p = cat.get(id); const vs = sx.tipo === 'tubo' ? cat.versoesTubo(p).filter(ok) : [p];
+          const pref = vs.length > 1 ? prefCorpo(ctx) : null;
+          if (pref !== null) { const alvo = vs.find(v => ehCorpo(v) === pref); if (alvo) p = alvo; }
+          const outras = vs.filter(v => v.id !== p.id).map(v => ({ id: v.id, score: null, recusa: ehCorpo(v) ? 'só corpo' : 'completa (PA+AA)' }));
+          const nota = vs.length > 1 ? (pref === null ? ' — existe ' + (ehCorpo(p) ? 'completa (PA+AA)' : 'só corpo') + ', conferir' : (pref ? ' — cliente costuma comprar só corpo' : ' — cliente costuma comprar completa')) : '';
+          return res(p.id, 'regra-sap', vs.length > 1 && pref === null ? 'baixa' : conf, motivo + nota, score, { alternativas: outras.concat(alternativas).slice(0, 6) });
+        };
         for (const rs of sx.refs) {
           const idx = cat.lookupApelido(rs);
-          if (idx && !travas(cat.get(idx), rs, det, tr)) return res(idx, 'regra-sap', certo ? 'media' : 'baixa', 'REF montado da descrição (' + rs + ')' + (certo ? '' : ' — série L/S não informada, conferir'));
+          if (idx && !travas(cat.get(idx), rs, det, tr)) return versao(idx, certo ? 'media' : 'baixa', 'REF montado da descrição (' + rs + ')' + (certo ? '' : ' — série L/S não informada, conferir'));
         }
         // trava com o REF sem rosca métrica / sufixo (a série pode faltar no cadastro)
         const curto = (s) => s.replace(/\(M\d+\)|INOX316$/g, '');
@@ -794,7 +839,7 @@
             vistos.add(c.prod.id);
             const motivo = travas(c.prod, curto(rs), det, tr) ||
               (/NPT/.test(rs) && !/NPT|\dMP|\dFP/.test(c.prod.d + ' ' + c.prod.a) ? 'rosca NPT não confirmada no cadastro' : null);
-            if (!motivo) return res(c.prod.id, 'regra-sap', 'baixa', 'Parecido com o REF montado da descrição (' + rs + ') — conferir', c.score, { alternativas: alternativas.slice(0, 5) });
+            if (!motivo) return versao(c.prod.id, 'baixa', 'Parecido com o REF montado da descrição (' + rs + ') — conferir', c.score);
             alternativas.push({ id: c.prod.id, score: Math.round(c.score * 100) / 100, recusa: motivo });
           }
         }
