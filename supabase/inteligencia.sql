@@ -123,13 +123,29 @@ create table if not exists public.parametros (
 );
 
 -- ---------------------------------------------------------------------
+-- 5b) CORTES — histórico de correias planas cortadas sob medida
+--     (relpro_nita / relpro_mec do SIG, agregado: material + base + medida).
+--     Usado pelo motor para responder correias planas.
+-- ---------------------------------------------------------------------
+create table if not exists public.cortes (
+  material      text not null,             -- código do material (LA500, TFL10S, 2LRF 2705...)
+  base_id       text not null,             -- produto base no cadastro (produto1_id)
+  larg          numeric not null,
+  comp          numeric not null,
+  vezes         int not null default 1,     -- quantas vezes já foi cortado assim
+  atualizado_em timestamptz not null default now(),
+  primary key (material, base_id, larg, comp)
+);
+create index if not exists cortes_medida_idx on public.cortes (larg, comp);
+
+-- ---------------------------------------------------------------------
 -- 6) SEGURANÇA — mesma regra do resto do sistema:
 --    leitura para qualquer usuário logado, escrita só para admin.
 -- ---------------------------------------------------------------------
 do $$
 declare t text;
 begin
-  foreach t in array array['produtos','vendas','contrato_itens','de_para','parametros'] loop
+  foreach t in array array['produtos','vendas','contrato_itens','de_para','parametros','cortes'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "Leitura liberada - %s" on public.%I', t, t);
     execute format('drop policy if exists "Inserir só admin - %s" on public.%I', t, t);

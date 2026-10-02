@@ -87,6 +87,7 @@ const Intel = (function(){
       const reg = {}; (data || []).forEach(r => { reg[r.chave] = r.valor; });
       if (reg.sistema) PARAMS = mesclarParams(PARAMS_PADRAO, reg.sistema);
       S.catalogoInfo = Object.assign({}, S.catalogoInfo || {}, reg.catalogo || {});
+      S.cortesInfo = reg.cortes || null;
       try { localStorage.setItem(PARAMS_STORAGE_KEY, JSON.stringify(PARAMS)); } catch (e){}
       HOJE = dataReferencia();
     } catch (e){ console.warn('[Parâmetros]', e.message || e); }
@@ -134,7 +135,29 @@ const Intel = (function(){
     S.catalogo = linhasParaCatalogo(linhas);
     S.catalogoInfo = Object.assign({}, S.catalogoInfo || {}, { total: S.catalogo.byId.size, ativos: S.catalogo.lista.length, origem });
     S.aprendizado = null;
+    await anexarCortes(S.catalogo);
     return S.catalogo;
+  }
+  // histórico de cortes (correias planas): arquivo do motor -> tabela -> cache
+  async function anexarCortes(cat){
+    try {
+      const cache = await IDB.get('cortes');
+      const versao = S.cortesInfo && S.cortesInfo.versao;
+      let linhas = (cache && cache.linhas && (!DB_ATIVO || !versao || cache.versao === versao)) ? cache.linhas : null;
+      if (!linhas && DB_ATIVO && versao){
+        try {
+          const { data, error } = await supabaseClient.storage.from('motor').download('cortes.json.gz');
+          if (error || !data) throw error || new Error('sem arquivo');
+          linhas = JSON.parse(await new Response(data.stream().pipeThrough(new DecompressionStream('gzip'))).text());
+        } catch (e){
+          const rows = await selectAll('cortes', null, 'material,base_id,larg,comp,vezes');
+          linhas = rows.map(r => [r.material, r.base_id, Number(r.larg), Number(r.comp), r.vezes]);
+        }
+        if (linhas && linhas.length) await IDB.set('cortes', { versao, linhas });
+      }
+      if (!linhas && cache && cache.linhas) linhas = cache.linhas;
+      if (linhas && linhas.length){ cat.definirCortes(linhas); S.cortesTotal = linhas.length; }
+    } catch (e){ console.warn('[Cortes]', e.message || e); }
   }
   function descProduto(id){
     const p = S.catalogo && S.catalogo.get(id);
@@ -986,6 +1009,41 @@ const Intel = (function(){
     } catch (e){ console.error(e); st.textContent = 'Erro: ' + (e.message || e); }
   }
 
+  // histórico de cortes: relpro_nita / relpro_mec (correias planas cortadas sob medida)
+  async function importarCortes(files){
+    const st = $('base-cor-status'); const bar = $('base-cor-bar');
+    try {
+      const rows = [];
+      for (const f of files){
+        st.textContent = 'Lendo ' + f.name + '...'; await espera();
+        lerPlanilhaComoObjetos(await f.arrayBuffer()).forEach(o => rows.push({
+          descricao: pega(o, ['descricao', 'Descrição']), produto1_id: pega(o, ['produto1_id']), larg: pega(o, ['larg', 'Largura']), comp: pega(o, ['comp', 'Comprimento'])
+        }));
+      }
+      const linhas = Motor.agregarCortes(rows);
+      if (!linhas.length){ st.textContent = 'Nenhum corte encontrado — confira se é a exportação relpro_nita / relpro_mec do SIG.'; return; }
+      const versao = new Date().toISOString();
+      if (DB_ATIVO){
+        await emLotes(linhas.map(([material, base_id, larg, comp, vezes]) => ({ material, base_id, larg, comp, vezes, atualizado_em: versao })), 1000, async (l) => {
+          const { error } = await supabaseClient.from('cortes').upsert(l, { onConflict: 'material,base_id,larg,comp' }); if (error) throw error;
+        }, (a, b) => { bar.style.width = (a / b * 90) + '%'; st.textContent = `Gravando cortes: ${a.toLocaleString('pt-BR')} de ${b.toLocaleString('pt-BR')}...`; });
+        try {
+          const gz = await gzipJSON(linhas);
+          if (gz){ const { error } = await supabaseClient.storage.from('motor').upload('cortes.json.gz', gz, { upsert: true, contentType: 'application/gzip' }); if (error) throw error; }
+        } catch (e){ console.warn('[Cortes] não gravou o arquivo do motor (o sistema vai ler da tabela):', e.message || e); }
+        await salvarParametro('cortes', { versao, total: linhas.length });
+        S.cortesInfo = { versao, total: linhas.length };
+      }
+      await IDB.set('cortes', { versao, linhas });
+      if (S.catalogo) S.catalogo.definirCortes(linhas);
+      S.cortesTotal = linhas.length;
+      bar.style.width = '100%';
+      st.textContent = `${rows.length.toLocaleString('pt-BR')} cortes lidos · ${linhas.length.toLocaleString('pt-BR')} combinações material × medida${DB_ATIVO ? ' gravadas no banco' : ' (só neste navegador)'}.`;
+      atualizarStatusBase();
+      showToast('Histórico de cortes importado');
+    } catch (e){ console.error(e); st.textContent = 'Erro: ' + (e.message || e); }
+  }
+
   // ensinar com planilha já respondida: mapeia código do cliente → ID
   const ENS = { wb: null, matriz: [], cab: 0 };
   async function lerEnsino(file){
@@ -1049,6 +1107,7 @@ const Intel = (function(){
       { l: 'Produtos no catálogo do motor', v: S.catalogo ? S.catalogo.byId.size.toLocaleString('pt-BR') : (ci.total ? ci.total.toLocaleString('pt-BR') : '0'), s: S.catalogo ? `${S.catalogo.lista.length.toLocaleString('pt-BR')} ativos · ${ci.origem || ''}` : (ci.versao ? 'ainda não carregado neste navegador' : 'importe o cadastro abaixo') },
       { l: 'Vendas carregadas', v: S.vendas.length.toLocaleString('pt-BR'), s: datas.length ? dataBR(datas[0]) + ' a ' + dataBR(datas[datas.length - 1]) + ' · só clientes ligados a contratos' : 'ligue os contratos ao cliente no SIG' },
       { l: 'De-para (memória do motor)', v: S.depara.length.toLocaleString('pt-BR'), s: clientesDp.size + ' cliente(s)' },
+      { l: 'Cortes de correia plana', v: (S.cortesTotal || (S.cortesInfo && S.cortesInfo.total) || 0).toLocaleString('pt-BR'), s: S.cortesTotal ? 'material × medida (relpro_nita / relpro_mec)' : 'importe o relpro_nita / relpro_mec abaixo' },
       { l: 'Itens de contrato', v: S.itens.length.toLocaleString('pt-BR'), s: new Set(S.itens.map(i => i.contrato_id)).size + ' contrato(s) com itens' }
     ].map(k => `<div class="kpi k-blue"><div class="label">${k.l}</div><div class="value">${k.v}</div><div class="sub">${k.s}</div></div>`).join('');
   }
@@ -1063,6 +1122,7 @@ const Intel = (function(){
     };
     liga('base-cad-file', 'base-cad-dz', importarCadastro);
     liga('base-ven-file', 'base-ven-dz', importarVendas);
+    liga('base-cor-file', 'base-cor-dz', importarCortes);
     liga('ens-file', 'ens-dz', (fs) => lerEnsino(fs[0]).catch(e => showToast('Erro: ' + e.message)));
     const ea = $('ens-aba'); if (ea) ea.addEventListener('change', e => selecionarAbaEnsino(e.target.value));
     const ec = $('ens-cab'); if (ec) ec.addEventListener('change', e => { ENS.cab = Math.max(0, Number(e.target.value) - 1); renderEnsinoMapa(); });

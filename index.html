@@ -242,7 +242,7 @@
             </div>
           </div>
           <div class="note" style="margin-top:14px;">
-            <b>Como o motor decide:</b> 1) de-para do cliente (respostas já aprovadas) · 2) mesmo código do cliente no histórico de vendas · 3) REF igual ao apelido do cadastro · 4) regras de terminal e adaptador hidráulico · 5) equivalente ao REF com travas de material, rosca, tipo de peça e medidas · 6) padrão aprendido de itens parecidos. Itens aprovados entram no de-para e voltam sozinhos na renovação.
+            <b>Como o motor decide:</b> 1) de-para do cliente (respostas já aprovadas) · 2) mesmo código do cliente no histórico de vendas · 3) REF igual ao apelido do cadastro · 4) regras de montagem: terminal e adaptador hidráulico, conexões de tubo Ermeto e Tupy pela descrição SAP, correias (sincronizadora, V, micro-V e planas pelo histórico de cortes) · 5) equivalente ao REF com travas de material, rosca, tipo de peça e medidas · 6) padrão aprendido de itens parecidos. Itens aprovados entram no de-para e voltam sozinhos na renovação.
           </div>
         </div>
       </section>
@@ -286,6 +286,19 @@
             </label>
             <div class="intel-progress"><span id="base-ven-status" class="intel-muted"></span><div class="intel-bar"><div class="intel-bar-fill" id="base-ven-bar"></div></div></div>
           </div>
+        </div>
+
+        <div class="upload-panel" style="margin-bottom:16px;">
+          <div class="upload-panel-head"><div>
+            <h3>Histórico de cortes (correias planas)</h3>
+            <p class="panel-sub">Exportações "relpro_nita" e "relpro_mec" do SIG (pode mandar as duas juntas). O motor usa para responder correias planas: material pedido pelo código → base + "cortar L × C"; outra marca → materiais já cortados na mesma medida.</p>
+          </div></div>
+          <label class="dropzone" id="base-cor-dz" for="base-cor-file">
+            <input type="file" id="base-cor-file" accept=".xls,.xlsx,.csv" multiple hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M12 4 7 9M12 4l5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+            <div class="dropzone-text"><b>Escolher arquivos</b> relpro_nita.xls / relpro_mec.xls</div>
+          </label>
+          <div class="intel-progress"><span id="base-cor-status" class="intel-muted"></span><div class="intel-bar"><div class="intel-bar-fill" id="base-cor-bar"></div></div></div>
         </div>
 
         <div class="upload-panel">

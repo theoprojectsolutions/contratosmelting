@@ -9,6 +9,7 @@
 //   2. Histórico de vendas (mesmo código do cliente já vendido)
 //   3. REF / apelido idêntico ao cadastro
 //   4. Regras de terminal e adaptador hidráulico (monta o apelido SML)
+//   4d. Correias planas: material Nitta/Mectrol + medida (histórico de cortes)
 //   4c. Correias: perfil + comprimento + largura (sincronizadora, micro-V, V)
 //   4b. Sem REF: monta o REF pela descrição SAP (conexões de tubo Ermeto/DIN,
 //       conexões galvanizadas Tupy)
@@ -461,6 +462,92 @@
     return { p, cands, marca, mesmaMarca: !!marca && cands[0]._marca === marca };
   }
 
+  // ---------------- correias planas (Nitta / Mectrol cortadas sob medida) ----------------
+  // Cortes = histórico relpro_nita / relpro_mec agregado: [material, idBase, larg, comp, vezes].
+  // Material pedido pelo código (LA-500, TFL-10S...) -> correia pronta no cadastro ou base + "cortar".
+  // Outra marca (Habasit...) -> não escolhe material: lista os já cortados na mesma medida,
+  // e só quando o pedido não fala em furo / talisca / acessório.
+  const codPlana = (s) => comp(String(s || '').replace(/^\s*CORREIA\s+/i, '')).replace(/\//g, '');
+  Catalogo.prototype.definirCortes = function (linhas) {
+    const porCod = new Map(), porMedida = new Map();
+    for (const [mat, base, larg, cmp, n] of linhas || []) {
+      const c = codPlana(mat); if (!c || !base) continue;
+      if (!porCod.has(c) || porCod.get(c).n < n) porCod.set(c, { base: String(base), n });
+      const k = Number(larg) + 'x' + Number(cmp);
+      if (!porMedida.has(k)) porMedida.set(k, new Map());
+      const mm = porMedida.get(k); mm.set(String(base), (mm.get(String(base)) || 0) + (n || 1));
+    }
+    // códigos também pelo nome do próprio produto base no cadastro ("CORREIA LA-1000")
+    for (const [, v] of porCod) { const b = this.get(v.base); if (b) { const c2 = codPlana(b.d); if (c2 && !porCod.has(c2)) porCod.set(c2, v); } }
+    this._cortes = { porCod, porMedida };
+  };
+  Catalogo.prototype.indicePlanas = function () {
+    if (this._planas) return this._planas;
+    const ix = new Map();
+    for (const o of this.lista) {
+      const m = (o.a + ' ' + o.d).match(/^([A-Z0-9 .\-\/]+?)\s*\*\s*(\d+(?:[.,]\d+)?)\s*(?:MM)?\s*X\s*(\d+(?:[.,]\d+)?)\s*(?:MM)?\s*\*/);
+      if (!m) continue;
+      const k = codPlana(m[1]) + '|' + num(m[2]) + 'x' + num(m[3]);
+      if (!ix.has(k)) ix.set(k, o);
+    }
+    this._planas = ix;
+    return ix;
+  };
+  // relpro_nita / relpro_mec (linhas como objetos) -> [material, idBase, larg, comp, vezes]
+  function agregarCortes(rows) {
+    const g = new Map();
+    for (const r of rows || []) {
+      const desc = String(r.descricao || ''); const base = r.produto1_id;
+      const mat = (desc.split('*')[1] || '').trim();
+      const larg = Number(String(r.larg).replace(',', '.')), cmp = Number(String(r.comp).replace(',', '.'));
+      if (!mat || !base || !isFinite(larg) || !isFinite(cmp) || !larg || !cmp) continue;
+      const k = [mat, base, larg, cmp].join('|');
+      g.set(k, (g.get(k) || 0) + 1);
+    }
+    return [...g].map(([k, n]) => { const [mat, base, larg, cmp] = k.split('|'); return [mat, String(base), +larg, +cmp, n]; });
+  }
+  function parsePlana(texto) {
+    const t = up(texto).replace(/\s+/g, ' ');
+    if (!/CORREIA|ESTEIRA|LENCOL|BELT/.test(t)) return null;
+    let larg = null, cmp = null;
+    let m = t.match(/(?:^|[^A-Z])(?:C|COMP|COMPR|COMPRIMENTO)\s*[.:]?\s*(\d{2,6}(?:[.,]\d+)?)\s*(?:MM)?/);
+    if (m) cmp = num(m[1]);
+    m = t.match(/(?:^|[^A-Z])(?:L|LARG|LARGURA)\s*[.:]?\s*(\d{1,4}(?:[.,]\d+)?)\s*(?:MM)?/);
+    if (m) larg = num(m[1]);
+    if (larg == null || cmp == null) {
+      m = t.match(/\*\s*(\d{1,4}(?:[.,]\d+)?)\s*(?:MM)?\s*X\s*(\d{2,6}(?:[.,]\d+)?)\s*(?:MM)?\s*\*/) || t.match(/(\d{1,6}(?:[.,]\d+)?)\s*(?:MM)?\s*X\s*(\d{1,6}(?:[.,]\d+)?)\s*MM/);
+      if (m) { const a = num(m[1]), b = num(m[2]); larg = Math.min(a, b); cmp = Math.max(a, b); }
+    }
+    if (larg == null || cmp == null) return null;
+    const plana = /PLANA|TRANSPORTADORA|TRANSMISSAO|TANGENCIAL|ESTEIRA|LENCOL|HABASIT|NITTA|SIEGLING|AMMERAAL|FORBO|MECTROL/.test(t);
+    if (!plana) return null;
+    const ref = (t.match(/\bREF(?:ERENCIA)?\.?\s*(?:COMERCIAL)?\s*:?\s*([^;·,]+)/) || [])[1] || '';
+    return {
+      larg, comp: cmp, ref: ref.trim(),
+      fechamento: /ABERTA|\bAB\b/.test(t) ? 'aberta' : (/FECHADA|SEM FIM|EMENDA|VULCANIZ|\bAF\b/.test(t) ? 'fechada' : null),
+      acessorio: /FURO|FURAD|TALISCA|PERFURA|TACO|GUIA|PERFIL|REVEST|TRAVESS|LATERAL/.test(t)
+    };
+  }
+  function correiaPlanaRule(det, cat) {
+    const p = parsePlana(det); if (!p) return null;
+    const C = cat._cortes || { porCod: new Map(), porMedida: new Map() };
+    // código de material Nitta/Mectrol escrito no pedido
+    let cod = null;
+    const toks = up(det).split(/[;·,\s*]+/);
+    const cands = [p.ref].concat(toks.slice(1).map((x, i) => toks[i] + x), toks); // "2LRF 2705" antes de "2LRF"
+    for (const tok of cands) {
+      const c = codPlana(tok);
+      if (c.length >= 2 && /\d/.test(c) && C.porCod.has(c) && cat.get(C.porCod.get(c).base)) { cod = c; break; }
+    }
+    const medida = p.larg + 'x' + p.comp;
+    if (cod) {
+      const pronta = cat.indicePlanas().get(cod + '|' + medida);
+      return { p, cod, pronta, base: cat.get(C.porCod.get(cod).base) };
+    }
+    const mats = [...((C.porMedida.get(medida)) || new Map())].sort((a, b) => b[1] - a[1]).map(([id, n]) => ({ prod: cat.get(id), n })).filter(x => x.prod);
+    return { p, cod: null, mats };
+  }
+
   // ---------------- travas (arcfill2.strict) ----------------
   function toks(s) {
     s = comp(s).replace(/1\.1\//g, '11/');
@@ -845,8 +932,23 @@
         }
       }
     }
+    // 4d) correias planas (cortadas sob medida)
+    if (P.regrasCorreia !== false && /CORREIA|ESTEIRA|LENCOL|BELT/.test(det)) {
+      const x = correiaPlanaRule(det + (ref ? ' REF ' + up(ref) : ''), cat);
+      if (x) {
+        const med = x.p.larg + ' x ' + x.p.comp + ' mm' + (x.p.fechamento ? ' ' + x.p.fechamento : '');
+        if (x.cod && x.pronta && ok(x.pronta)) return res(x.pronta.id, 'regra-correia', 'media', 'Correia plana ' + x.cod + ' ' + med + ' já cadastrada', null, { alternativas: x.base ? [{ id: x.base.id, score: null, recusa: 'material base (cortar)' }] : [] });
+        if (x.cod && x.base && ok(x.base)) return res(x.base.id, 'regra-correia', 'media', 'Material ' + x.cod + ' — cortar ' + med + (x.p.acessorio ? ' (pedido tem furo/talisca/acessório, conferir)' : ''));
+        if (!x.cod && x.mats.length) {
+          x.mats.slice(0, 8).forEach(m => alternativas.push({ id: m.prod.id, score: null, recusa: 'já cortado ' + m.n + 'x em ' + x.p.larg + 'x' + x.p.comp }));
+          return res(null, 'nenhum', 'sem_cadastro', x.p.acessorio
+            ? 'Correia plana ' + med + ' com furo/talisca/acessório — não usar similar sem conferir'
+            : 'Correia plana de outra marca ' + med + ': ' + x.mats.length + ' material(is) Nitta/Mectrol já cortado(s) nessa medida — escolher', null, { alternativas: alternativas.slice(0, 8) });
+        }
+      }
+    }
     // 4c) correias: perfil + comprimento + largura/canais
-    if (P.regrasCorreia !== false && /CORREIA|SLAB|BELT/.test(det)) {
+    if (P.regrasCorreia !== false && /CORREIA|SLAB|BELT/.test(det) && !/PLANA|TRANSPORTADORA|TANGENCIAL|ESTEIRA/.test(det)) {
       const x = correiaRule(det + (ref ? ' ' + up(ref) : ''), cat);
       if (x && x.cands.length) {
         const best = x.cands[0];
@@ -894,7 +996,7 @@
   const Motor = {
     deacc, up, comp, norm, tofrac, sizes, sideSpec, terminalRule, adapterRule, travas, threads, types, toks,
     Catalogo, Aprendizado, sugerir, medidasDescricaoOk, PADRAO, bitolaCliente,
-    conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule
+    conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule, parsePlana, correiaPlanaRule, agregarCortes
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = Motor;
   else root.Motor = Motor;
