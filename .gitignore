@@ -10,3 +10,5 @@ desktop.ini
 # Arquivos temporários
 *.tmp
 *.log
+dev/dados/
+node_modules/
