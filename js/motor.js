@@ -459,6 +459,18 @@
         ix.get(k).push(o);
       }
     }
+    // slabs (luva moldada vendida por mm de largura): perfil + comprimento, sem largura
+    this._slabs = new Map();
+    for (const o of this.lista) {
+      if (!/SLAB/.test(o.d) || !/CORREIA|SLAB/.test(o.d + ' ' + up(o.familia))) continue;
+      const p = parseCorreia('CORREIA SINCRONIZADA ' + o.d.replace(/SLAB/g, ' '), true);
+      if (!p || p.fam !== 'sinc') continue;
+      if (/\bTP\b|TWIN/.test(o.d + ' ' + up(o.familia))) p.tp = true;
+      const k = ['sinc', p.tp ? 'TP' : '', p.perfil, p.comp].join('|');
+      o._marca = o._marca || marcaCorreia(o.familia + ' ' + o.d + ' ' + o.a); o._correia = o._correia || p;
+      if (!this._slabs.has(k)) this._slabs.set(k, []);
+      this._slabs.get(k).push(o);
+    }
     this._correias = ix;
     return ix;
   };
@@ -1298,9 +1310,23 @@
         const best = x.cands[0];
         const alts = x.cands.slice(1, 6).map(o => ({ id: o.id, score: null, recusa: o._marca ? 'marca ' + o._marca : 'outra opção' }));
         const desc = (x.p.tp ? 'TP ' : '') + x.p.comp + ' ' + x.p.perfil + (x.p.ger || '') + ' ' + x.p.larg;
-        const conf = (x.mesmaMarca || (!x.marca && x.cands.length === 1)) ? 'media' : 'baixa';
-        const motivo = 'Regra de correia (' + desc + ')' + (x.marca && !x.mesmaMarca ? ' — marca ' + x.marca + ' não encontrada, equivalente ' + (best._marca || 'sem marca') : '') + (!x.marca && x.cands.length > 1 ? ' — ' + x.cands.length + ' marcas no cadastro, conferir' : '');
+        const conf = (x.mesmaMarca || (!x.marca && (x.cands.length === 1 || best._marca === 'MELTING'))) ? 'media' : 'baixa';
+        const motivo = 'Regra de correia (' + desc + ')' + (x.marca && !x.mesmaMarca ? ' — marca ' + x.marca + ' não encontrada, equivalente ' + (best._marca || 'sem marca') : '') + (!x.marca && x.cands.length > 1 ? (best._marca === 'MELTING' ? ' — linha Melting (' + x.cands.length + ' marcas no cadastro)' : ' — ' + x.cands.length + ' marcas no cadastro, conferir') : '');
         return res(best.id, 'regra-correia', conf, motivo, null, { alternativas: alts });
+      }
+      // correia sincronizadora sem pronta no cadastro: slab do mesmo comprimento cortado na largura (vendido por mm)
+      if (x && x.p.fam === 'sinc' && x.p.larg != null && !x.cands.length) {
+        cat.indiceCorreias();
+        const sl = (cat._slabs.get(['sinc', x.p.tp ? 'TP' : '', x.p.perfil, x.p.comp].join('|')) || []).filter(ok);
+        if (sl.length) {
+          const pref = (o) => (x.marca && o._marca === x.marca ? 4 : 0) + (o._marca === 'MELTING' ? 2 : 0) + (/^MM$/i.test(o.um) ? 1 : 0) + (x.p.ger && o._correia && o._correia.ger === x.p.ger ? 1 : 0);
+          sl.sort((a, b) => pref(b) - pref(a));
+          const s = sl[0];
+          const porMM = /^MM$/i.test(s.um);
+          return res(s.id, 'regra-correia', 'media', 'Sem a correia pronta: cortar ' + x.p.larg + ' mm de largura do slab ' + (x.p.tp ? 'TP ' : '') + x.p.comp + ' ' + x.p.perfil + ' (' + s.a + ')',
+            null, { componentes: [{ papel: 'slab (cortar a largura)', id: s.id, apelido: s.a, qtd: porMM ? x.p.larg : 1, un: porMM ? 'mm' : (s.um || 'pc').toLowerCase() }],
+              alternativas: sl.slice(1, 4).map(o => ({ id: o.id, score: null, recusa: 'outro slab' + (o._marca ? ' ' + o._marca : '') })).concat((x.vizinhas || []).slice(0, 3).map(o => ({ id: o.id, score: null, recusa: 'pronta, largura ' + o._correia.larg }))) });
+        }
       }
       // correia sincronizadora sem pronta no cadastro: LL Mectrol (rolo cortado e emendado)
       if (x && x.p.fam === 'sinc' && x.p.larg != null && cat._cortes && cat._cortes.porLL) {
@@ -1312,9 +1338,11 @@
           if (opc.length) {
             const b = opc[0].o; const ja = b.comps.has(x.p.comp);
             const alts = opc.slice(1, 6).map(({ o }) => ({ id: o.base, score: null, recusa: 'LL ' + o.mat }));
+            const llp = cat.get(b.base); const porM = llp && /^MT?$/i.test(llp.um);
             return res(b.base, 'regra-correia', ja ? 'media' : 'baixa',
               'Mectrol: LL ' + x.p.perfil + ' ' + x.p.larg + (b.variante ? ' ' + b.variante : '') + ' — cortar ' + x.p.comp + ' mm e emendar' + (ja ? ' (já feito nesse comprimento)' : ' (material já usado ' + b.n + 'x, conferir)'),
-              null, { alternativas: alts.concat((x.vizinhas || []).slice(0, 3).map(o => ({ id: o.id, score: null, recusa: 'pronta, largura ' + o._correia.larg }))) });
+              null, { componentes: [{ papel: 'LL (cortar e emendar)', id: b.base, apelido: llp ? llp.a : b.mat, qtd: porM ? Math.round(x.p.comp) / 1000 : 1, un: porM ? 'm' : 'pc' }],
+                alternativas: alts.concat((x.vizinhas || []).slice(0, 3).map(o => ({ id: o.id, score: null, recusa: 'pronta, largura ' + o._correia.larg }))) });
           }
         }
       }

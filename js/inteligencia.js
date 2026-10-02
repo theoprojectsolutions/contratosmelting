@@ -546,6 +546,35 @@ const Intel = (function(){
     }
     return out;
   }
+  // último preço de venda de cada produto em todo o histórico (qualquer cliente) — usado para slab / LL / montagens
+  S.precos = new Map();
+  async function carregarPrecos(ids){
+    const falta = [...new Set(ids.filter(Boolean).map(String))].filter(id => !S.precos.has(id));
+    if (!falta.length) return;
+    if (!DB_ATIVO){
+      for (const v of S.vendas){ const id = String(v.produto_id); if (!falta.includes(id)) continue; const a = S.precos.get(id); if (!a || String(v.data) > String(a.data)) S.precos.set(id, { preco: Number(v.preco_unit), data: v.data }); }
+      return;
+    }
+    for (let i = 0; i < falta.length; i += 100){
+      const parte = falta.slice(i, i + 100);
+      try {
+        const rows = await selectAll('vendas', q => q.in('produto_id', parte).order('data', { ascending: false }), 'produto_id,preco_unit,data');
+        for (const v of rows){ const id = String(v.produto_id); if (!S.precos.has(id)) S.precos.set(id, { preco: Number(v.preco_unit), data: v.data }); }
+      } catch (e){ console.warn('[Preços]', e.message || e); }
+      parte.forEach(id => { if (!S.precos.has(id)) S.precos.set(id, null); });
+    }
+  }
+  // valor estimado de um item com componentes (slab por mm, LL por metro, montagem de mangueira)
+  function valorComponentes(it, contrato){
+    const cs = (it.componentes || []).filter(c => c.id);
+    if (!cs.length) return null;
+    let total = 0, com = 0; const partes = [];
+    for (const c of cs){
+      const u = ultimoPreco(c.id, contrato); const q = Number(c.qtd) || 1;
+      if (u && isFinite(u.preco)){ total += u.preco * q; com++; partes.push(`${String(q).replace('.', ',')} ${c.un || ''} × ${brl(u.preco)}`); }
+    }
+    return com ? { total, completo: com === cs.length, partes } : null;
+  }
   function ultimoPreco(produtoId, contrato){
     if (!produtoId) return null;
     let best = null, bestCli = null;
@@ -555,7 +584,8 @@ const Intel = (function(){
       if (contrato && Kpis.vendaDoCliente(contrato, v) && (!bestCli || String(v.data) > String(bestCli.data))) bestCli = v;
     }
     const v = bestCli || best;
-    return v ? { preco: Number(v.preco_unit), data: v.data, doCliente: !!bestCli } : null;
+    if (!v){ const p = S.precos.get(String(produtoId)); return p ? { preco: p.preco, data: p.data, doCliente: false } : null; }
+    return { preco: Number(v.preco_unit), data: v.data, doCliente: !!bestCli };
   }
 
   async function rodarMotor(){
@@ -601,6 +631,8 @@ const Intel = (function(){
         }));
         if (i % 25 === 0){ bar.style.width = (i / linhas.length * 100) + '%'; prog.querySelector('span').textContent = `Respondendo item ${i + 1} de ${linhas.length}...`; await espera(); }
       }
+      prog.querySelector('span').textContent = 'Buscando últimos preços...'; await espera();
+      await carregarPrecos([].concat(...RP.itens.map(it => [it.produto_id].concat((it.componentes || []).map(c => c.id)))));
       bar.style.width = '100%';
       RP.filtro = ''; RP.busca = ''; RP.expandido = null;
       $('rp-resultado').hidden = false;
@@ -693,7 +725,7 @@ const Intel = (function(){
         <td>${num(it.qtd_estimada).toLocaleString('pt-BR')} ${esc(it.un || '')}</td>
         <td>${it.produto_id ? `<span class="mono">${esc(it.produto_id)}</span> · ${esc(apelidoProduto(it.produto_id))}<div class="intel-muted">${esc(descProduto(it.produto_id))}</div>` : '<span class="intel-muted">—</span>'}${(it.componentes || []).length ? `<ul class="rp-comps">${it.componentes.map(c => `<li><span class="intel-muted">${esc(c.papel)}:</span> ${c.id ? `<span class="mono">${esc(c.id)}</span> · ` : ''}${esc(c.apelido || '')}${c.qtd ? ` <span class="intel-muted">× ${String(c.qtd).replace('.', ',')} ${esc(c.un || '')}</span>` : ''}</li>`).join('')}</ul>` : ''}</td>
         <td><span class="badge ${confCls}">${{ alta: 'Alta', media: 'Média', baixa: 'Baixa', sem_cadastro: 'Sem cadastro' }[conf] || conf}</span><div class="intel-muted rp-motivo">${esc(it.motivo || '')}</div></td>
-        <td>${up_ ? brl(up_.preco) + `<div class="intel-muted">${up_.doCliente ? 'deste cliente' : 'outro cliente'} · ${dataBR(up_.data)}</div>` : '—'}</td>
+        <td>${(() => { const vc = valorComponentes(it, contrato); if (vc) return `${brl(vc.total)}<div class="intel-muted">${vc.completo ? 'estimado' : 'parcial'}: ${esc(vc.partes.join(' + '))}</div>`; return up_ ? brl(up_.preco) + `<div class="intel-muted">${up_.doCliente ? 'deste cliente' : 'outro cliente'} · ${dataBR(up_.data)}</div>` : '—'; })()}</td>
         <td class="rp-acoes">
           ${it.produto_id && it.status !== 'aprovado' ? `<button class="icon-btn ok" data-acao="aprovar" title="Aprovar">✓</button>` : ''}
           ${it.status === 'aprovado' ? `<button class="icon-btn" data-acao="desaprovar" title="Voltar para sugerido">↺</button>` : ''}
@@ -867,12 +899,13 @@ const Intel = (function(){
 
   function baixarRespondida(){
     const contrato = CONTRATOS.find(c => c.id === ($('rp-contrato').value || RP.contratoId));
-    const extra = ['ID MELTING', 'APELIDO MELTING', 'DESCRIÇÃO MELTING', 'COMPONENTES (MONTAGEM)', 'CONFIANÇA', 'STATUS', 'COMO FOI ENCONTRADO', 'ÚLTIMO PREÇO', 'DATA ÚLTIMO PREÇO'];
+    const extra = ['ID MELTING', 'APELIDO MELTING', 'DESCRIÇÃO MELTING', 'COMPONENTES (MONTAGEM / CORTE)', 'CONFIANÇA', 'STATUS', 'COMO FOI ENCONTRADO', 'ÚLTIMO PREÇO / VALOR ESTIMADO', 'DATA ÚLTIMO PREÇO'];
     const compsTxt = (it) => (it.componentes || []).map(c => (c.qtd ? String(c.qtd).replace('.', ',') + (c.un === 'm' ? ' m ' : 'x ') : '') + (c.id ? c.id + ' ' : '') + (c.apelido || '')).join(' + ');
     const valores = (it) => {
-      const u = it.produto_id ? ultimoPreco(it.produto_id, contrato) : null;
+      const vc = valorComponentes(it, contrato);
+      const u = vc ? { preco: Math.round(vc.total * 100) / 100, data: null } : (it.produto_id ? ultimoPreco(it.produto_id, contrato) : null);
       return [it.produto_id ? (isNaN(Number(it.produto_id)) ? it.produto_id : Number(it.produto_id)) : 'NÃO ENCONTRADO', apelidoProduto(it.produto_id), descProduto(it.produto_id), compsTxt(it),
-        it.produto_id ? it.confianca : 'sem cadastro', it.status, it.motivo || '', u ? u.preco : null, u ? dataBR(u.data) : null];
+        it.produto_id ? it.confianca : 'sem cadastro', it.status, it.motivo || '', u ? u.preco : null, u && u.data ? dataBR(u.data) : null];
     };
     let wb;
     if (RP.origem === 'arquivo' && RP.wb){
