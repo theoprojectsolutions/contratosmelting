@@ -9,6 +9,7 @@
 //   2. Histórico de vendas (mesmo código do cliente já vendido)
 //   3. REF / apelido idêntico ao cadastro
 //   4. Regras de terminal e adaptador hidráulico (monta o apelido SML)
+//   4e. Mangueira montada: mangueira + terminais + capa (histórico de FTMs)
 //   4d. Correias planas: material Nitta/Mectrol + medida (histórico de cortes)
 //   4c. Correias: perfil + comprimento + largura (sincronizadora, micro-V, V)
 //   4b. Sem REF: monta o REF pela descrição SAP (conexões de tubo Ermeto/DIN,
@@ -608,6 +609,242 @@
     return { p, cod: null, mats };
   }
 
+
+  // ---------------- mangueiras montadas (FTM) ----------------
+  // Monta a mangueira pela descrição SAP: norma/reforço -> família (AGR2, EFG4K...), bitola,
+  // terminais de cada lado ({bitola}G{rosca}{tipo}[ângulo]SML) e comprimento. O histórico
+  // das FTMs (relpro_ftm) decide as ambiguidades (rosca x tubo DIN, série L x S), a mangueira
+  // mais usada da família e a capa; e aponta a FTM idêntica, se existir.
+  // norma -> famílias de mangueira do cadastro Melting, em ordem de preferência
+  const NORMA_FAM = [
+    [/100\s*R\s*16|\bR16\b|2SC\b|2\s*SC\b/, ['AGR2', 'C2AT', 'M3K']],
+    [/100\s*R\s*17|\bR17\b/, ['M3K', 'AGR2']],
+    [/100\s*R\s*12|\bR12\b/, ['EFG4K', 'EFG4KXLL', 'MXG4KXTP']],
+    [/100\s*R\s*13|\bR13\b/, ['EFG6K', 'EFG6KXLL', 'EFG5K']],
+    [/100\s*R\s*15|\bR15\b/, ['EFG6K', 'EFG6KXLL']],
+    [/4\s*SH\b/, ['XH', 'EFG4K']],
+    [/4\s*SP\b/, ['EFG4K', 'EFG4KXLL']],
+    [/100\s*R\s*2\s*A?T|\bR2AT\b|2\s*SN\b|100\s*R\s*2\b/, ['AGR2', 'C2AT', 'C2ATG2', 'M2T']],
+    [/100\s*R\s*1\s*A?T|\bR1AT\b|1\s*SN\b|100\s*R\s*1\b|1\s*SC\b/, ['AGR1', 'C1T', 'C1TG1']],
+    [/100\s*R\s*3\b|\bR3\b/, ['C3H']],
+    [/100\s*R\s*4\b|\bR4\b/, ['C4H']],
+    [/100\s*R\s*5\b|\bR5\b/, ['C5C']],
+    [/100\s*R\s*6\b|\bR6\b/, ['C6H']],
+    [/100\s*R\s*14|\bR14\b|PTFE|TEFLON/, ['C14']]
+  ];
+  // sem norma: pelo reforço e pressão
+  function familiaPorConstrucao(t, psi) {
+    if (/6\s*ESPIRA/.test(t)) return ['EFG6K', 'EFG5K'];
+    if (/4\s*ESPIRA/.test(t)) return psi && psi >= 5000 ? ['EFG6K', 'EFG4K'] : ['EFG4K', 'EFG6K'];
+    if (/2\s*(TRAN|TRAM|TRAC)/.test(t)) return ['AGR2', 'C2AT', 'M3K'];
+    if (/1\s*(TRAN|TRAM|TRAC)/.test(t)) return ['AGR1', 'C1T'];
+    return null;
+  }
+  const DI_DASH = [[4.8, 3], [6.4, 4], [7.9, 5], [9.5, 6], [12.7, 8], [15.9, 10], [19, 12], [25.4, 16], [31.8, 20], [38.1, 24], [50.8, 32], [63.5, 40], [76.2, 48]];
+  function dashDe(t) {
+    const c = t.replace(/\s+/g, '');                       // SAP quebra palavras e números com espaços
+    const mmDash = (v) => { let best = null, bd = 9; for (const [mm, ds] of DI_DASH) if (Math.abs(mm - v) < bd) { bd = Math.abs(mm - v); best = ds; } return bd <= 1.3 ? best : null; };
+    let m = c.match(/BITOLA:?-?(\d{1,2})(?![\d,.])/); if (m && +m[1] >= 2 && +m[1] <= 64) return +m[1];
+    m = c.match(/BITOLA:?(\d{1,2}[,.]\d+)/); if (m) return mmDash(Number(m[1].replace(',', '.')));
+    m = c.match(/DIAMETRO(?:INTERNO|NOMINAL)[^;]*?:?(\d{1,3}(?:[,.]\d+)?)MM/); if (m) { const d = mmDash(Number(m[1].replace(',', '.'))); if (d) return d; }
+    m = c.match(/DIAMETRO(?:INTERNO|NOMINAL)?:?(\d+(?:\.\d\/\d+)?|\d\/\d+)(?:POL|")/) || c.match(/^[^;]*?(\d+\.\d\/\d+|\d\/\d+|\d)(?:POL|")/);
+    if (m) { const v = tofrac(m[1].replace('.', ' ')); if (v) return Math.round(v * 16); }
+    return null;
+  }
+  function psiDe(t) {
+    const m = t.match(/PRESSAO (?:DE )?TRABALHO\s*:?\s*([\d.]+)\s*(PSI|BAR|LBS)/);
+    if (!m) return null; const v = Number(m[1].replace(/\./g, ''));
+    return m[2] === 'BAR' ? v * 14.5 : v;
+  }
+  function comprimentoDe(t) {
+    const m = t.match(/COMPRIMENTO(?: TOTAL)?\s*:?\s*([\d.]+(?:,\d+)?)\s*MM/) || t.match(/COMPRIMENTO(?: TOTAL)?\s*:?\s*([\d.]+(?:,\d+)?)\s*M\b/);
+    if (!m) return null; let v = Number(m[1].replace(/\./g, '').replace(',', '.'));
+    if (/\s*M\b/.test(m[0]) && !/MM/.test(m[0])) v *= 1000;
+    return Math.round(v);
+  }
+
+  // ---------------- terminais ----------------
+  const MJIC = [[7/16,4],[1/2,5],[9/16,6],[3/4,8],[7/8,10],[1+1/16,12],[1+3/16,14],[1+5/16,16],[1+5/8,20],[1+7/8,24],[2+1/2,32]];
+  const MORFS = [[9/16,4],[11/16,6],[13/16,8],[1,10],[1+3/16,12],[1+7/16,16],[1+11/16,20],[2,24]];
+  const MPIPE = [[1/8,2],[1/4,4],[3/8,6],[1/2,8],[3/4,12],[1,16],[1.25,20],[1.5,24],[2,32],[2.5,40],[3,48]];
+  const nearM = (tab, v, tol = 0.03) => { let b = null, bd = 9; for (const [k, d] of tab) { const x = Math.abs(k - v); if (x < bd) { bd = x; b = d; } } return bd <= tol ? b : null; };
+  const THR_S = { 14: 6, 16: 8, 18: 10, 20: 12, 22: 14, 24: 16, 30: 20, 36: 25, 42: 30, 52: 38 };
+  const THR_L = { 12: 6, 14: 8, 16: 10, 18: 12, 22: 15, 26: 18, 30: 22, 36: 28, 45: 35, 52: 42 };
+  const TUBO_S = [6, 8, 10, 12, 14, 16, 20, 25, 30, 38], TUBO_L = [6, 8, 10, 12, 15, 18, 22, 28, 35, 42];
+  function polDe(s) { const m = s.match(/(\d+\.\d+\/\d+|\d+\/\d+|\d+(?:[.,]\d+)?)(?:POL|"|'')/); if (!m) return null; return /\//.test(m[1]) ? tofrac(m[1].replace('.', ' ')) : Number(m[1].replace(',', '.')); }
+
+  function segmentos(c) {
+    // c = texto compacto (sem espaços)
+    const c2 = c.replace(/^MANGUEIRA(?:HIDRAULICA)?TERMINAL:?/, 'MANGUEIRA:');
+    const ini0 = c2.search(/TERMINAL(?:\(?A\)?(?=[:;])|A:|LADO1|ESQUERDO|ESQ)|TERMINALA|CONEXAOA|MONTAGEM|TERMINAL\(A\)|TERMINAIS|TERMINAL/);
+    const ini = ini0 < 0 ? -1 : ini0 + (c.length - c2.length);
+    if (ini < 0) return null;
+    const rxB = /TERMINAL(?:\(B\)|B(?=[:;])|LADO2|DIREITO)|TERMINALB|CONEXAOB|LADO2|DIREITO:/g;
+    rxB.lastIndex = ini + 8; const mb = rxB.exec(c);
+    const fim = (s) => { const k = s.search(/MATERIALDOTERMINAL|COMPRIMENTO|REVESTIMENTO|ACABAMENTO|NORMA:|NOTA|APLICACAO|OBSERVA/); return k > 20 ? s.slice(0, k) : s; };
+    if (!mb) return { a: fim(c.slice(ini)), b: null };
+    return { a: c.slice(ini, mb.index), b: fim(c.slice(mb.index)) };
+  }
+  function angDe(s, lado) {
+    const m = s.match(/ANGULO[A-Z]*?(?:TERMINAL)?[AB]?:?(RETO|90|45)/) || s.match(/(90|45)(?:GR|°|º)/);
+    if (m) return m[1] === 'RETO' ? '' : m[1];
+    return '';
+  }
+  function terminal(s, dash, umaTrama, full) {
+    const macho = /MACHO/.test(s) && !/FEMEA/.test(s);
+    if (/FLANGE/.test(s)) {
+      const v = polDe(s); const td = v ? nearM(MPIPE, v, 0.05) : dash;
+      const h = /CODIGO62|COD62|SAE62|6000PSI|CODE62/.test(s) || /SAE62|CODIGO62|CODE62/.test(full);
+      return { T: h ? 'FLH' : 'FL', td: td || dash };
+    }
+    const metr = /DKO|24GR|24°|METRICA|DIN|\bM\d{2}\b|ROSCATIPO:M\d{2}/.test(s);
+    if (metr && !/UNF|UNS|JIC|NPT|BSP/.test(s)) {
+      const nums = [...s.matchAll(/(?:DIAMETRO[A-Z]?:?|DIAMETROEXTERNO(?:DO)?TUBO:?|TUBO:?|ROSCATIPO:M|M|DKO)(\d{2})(?:MM|[LS])?/g)].map(x => +x[1]);
+      const opc = [];
+      const add = (serie, td) => { if (td) opc.push({ T: macho ? (serie === 'S' ? 'MDH' : 'MDL') : (serie === 'S' ? 'FDHORX' : 'FDLORX'), td }); };
+      const ds = s.match(/DKO(\d{2})([LS])/); if (ds) add(ds[2], +ds[1]);
+      const thrM = s.match(/ROSCATIPO:M(\d{2})|\bM(\d{2})X|M(\d{2})X\d/);
+      if (thrM) { const th = +(thrM[1] || thrM[2] || thrM[3]); add('S', THR_S[th]); add('L', THR_L[th]); }
+      for (const v of nums) {
+        if (THR_S[v] || THR_L[v]) { add('S', THR_S[v]); add('L', THR_L[v]); }
+        if (TUBO_S.includes(v)) add('S', v);
+        if (TUBO_L.includes(v)) add('L', v);
+      }
+      if (!opc.length) return null;
+      const r = opc[0]; r.opcoes = opc; return r;
+    }
+    if (/ORFS|FACEPLANA|SEDEPLANA|ORING|O-RING/.test(s) && !/NPT|BSP/.test(s)) { const v = polDe(s); return { T: macho ? 'MFFOR' : 'FFORX', td: v ? nearM(MORFS, v) : dash }; }
+    if (/BSP/.test(s)) { const v = polDe(s); return { T: macho ? 'MBSPP' : 'FBSPORX', td: v ? nearM(MPIPE, v) : dash }; }
+    if (/NPT/.test(s)) { const v = polDe(s); return { T: macho ? 'MP' : (/GIRAT/.test(s) ? 'FPX' : 'FP'), td: v ? nearM(MPIPE, v) : dash }; }
+    if (/JIC|37|UNF|UNS/.test(s)) { const v = polDe(s); return { T: macho ? 'MJ' : 'FJX', td: v ? nearM(MJIC, v) : dash }; }
+    return null;
+  }
+
+  // relpro_ftm (linhas como objetos) -> resumo compacto para o motor
+  function agregarFtm(rows) {
+    const R = { uso: {}, usoR: {}, usoTer: {}, usoTerR: {}, co: {}, tot: {}, capa: {}, ftms: [] };
+    const base = (s) => comp(String(s || '')).replace(/SML.*$/, '').replace(/INOX.*$/, '').replace(/(90|45)$/, '');
+    const capas = {};
+    // FTMs recentes pesam mais (a Melting troca de marca/fornecedor com o tempo)
+    let maxN = 1; for (const r of rows || []) { const n = Number(r.id || r.ftm); if (n > maxN) maxN = n; }
+    for (const r of rows || []) {
+      const mang = String(r.mang_id || '').replace(/\.0+$/, ''); if (!mang || mang === '0') continue;
+      const w = 1 + 20 * Math.pow((Number(r.id || r.ftm) || 0) / maxN, 8);
+      R.uso[mang] = (R.uso[mang] || 0) + w;
+      const recente = (Number(r.id || r.ftm) || 0) > maxN * 0.85;
+      if (recente) R.usoR[mang] = (R.usoR[mang] || 0) + 1;
+      const fm = String(r.descmang || '').trim().match(/^(\d{1,2})([A-Z][A-Z0-9]*?)(SML|-|$)/); const fk = fm ? fm[1] + fm[2] : '';
+      const t1 = String(r.ter1_id || '').replace(/\.0+$/, ''), t2 = String(r.ter2_id || '').replace(/\.0+$/, '');
+      for (const [tid, td] of [[t1, r.descter1], [t2, r.descter2]]) {
+        if (!tid || tid === '0' || !td) continue;
+        R.usoTer[tid] = (R.usoTer[tid] || 0) + w; if (recente) R.usoTerR[tid] = (R.usoTerR[tid] || 0) + 1;
+        const b = base(td); R.tot[b] = (R.tot[b] || 0) + 1; const k = fk + '|' + b; R.co[k] = (R.co[k] || 0) + 1;
+      }
+      const cp = String(r.capa_id || '').replace(/\.0+$/, '');
+      if (cp && cp !== '0') { capas[mang] = capas[mang] || {}; capas[mang][cp] = (capas[mang][cp] || 0) + w; }
+      const n = Number(r.id || r.ftm); const met = Math.round(Number(String(r.metragem || '0').replace(',', '.')));
+      if (n) R.ftms.push([n, mang, t1 === '0' ? '' : t1, t2 === '0' ? '' : t2, met, Number(r.qtdter1) || 0]);
+    }
+    for (const m in capas) { const best = Object.entries(capas[m]).sort((a, b) => b[1] - a[1])[0]; R.capa[m] = best[0]; }
+    for (const o of [R.uso, R.usoTer]) for (const k in o) o[k] = Math.round(o[k] * 10) / 10;
+    return R;
+  }
+  Catalogo.prototype.definirFtm = function (R) {
+    if (!R) return;
+    this._ftm = R;
+    // mangueiras do cadastro por bitola + família, ordenadas pelo uso nas FTMs
+    this._mang = new Map();
+    for (const o of this.lista) {
+      const m = o.a.match(/^(\d{1,2})([A-Z][A-Z0-9]*?)(SML|-|$)/); if (!m || !/MANG/.test(o.d) || /^FTM|\*/.test(o.id + o.a)) continue;
+      const k = +m[1] + '|' + m[2];
+      if (!this._mang.has(k)) this._mang.set(k, []);
+      this._mang.get(k).push(o);
+    }
+    const usoM = (o) => (R.usoR[o.id] || 0) * 1e6 + (R.uso[o.id] || 0);
+    for (const l of this._mang.values()) l.sort((a, b) => usoM(b) - usoM(a));
+    // terminais do cadastro pelo apelido-base
+    this._ter = new Map();
+    for (const o of this.lista) {
+      if (!/^\d{1,2}G\d/.test(o.a) && !/^\d{1,2}PCM/.test(o.a)) continue;
+      const b = comp(o.a).replace(/SML.*$/, '');
+      if (!this._ter.has(b)) this._ter.set(b, []);
+      this._ter.get(b).push(o);
+    }
+    const usoT = (o) => ((R.usoTerR || {})[o.id] || 0) * 1e6 + (R.usoTer[o.id] || 0);
+    for (const l of this._ter.values()) l.sort((a, b) => usoT(b) - usoT(a));
+    // FTM idêntica: mangueira + terminais
+    this._ftmIx = new Map();
+    for (const [n, mang, t1, t2, met, q1] of R.ftms) {
+      const ts = [t1, q1 >= 2 ? t1 : t2].filter(Boolean).sort().join('+');
+      const k = mang + '|' + ts; if (!this._ftmIx.has(k)) this._ftmIx.set(k, []);
+      this._ftmIx.get(k).push([n, met]);
+    }
+  };
+  const marcaMang = (a) => (String(a).match(/SML-?([A-Z]+)/) || [, ''])[1];
+  // marca de mangueira que o cliente costuma comprar (de-para + vendas dele)
+  function prefMarcaMang(ctx, cat) {
+    if (!ctx) return null;
+    if (ctx._prefMarcaMang !== undefined) return ctx._prefMarcaMang;
+    const n = {};
+    const ids = [...(ctx.depara ? ctx.depara.values() : []), ...(ctx.historico ? [...ctx.historico.values()].map(h => h.id) : [])];
+    for (const id of ids) { const p = cat.get(id); if (!p || !/MANG/.test(p.d)) continue; const mk = marcaMang(p.a); if (mk) n[mk] = (n[mk] || 0) + 1; }
+    const best = Object.entries(n).sort((a, b) => b[1] - a[1])[0];
+    ctx._prefMarcaMang = best && best[1] >= 2 ? best[0] : null;
+    return ctx._prefMarcaMang;
+  }
+  function mangueiraRule(det, cat, ctx) {
+    if (!cat._ftm) return null;
+    const t = up(det).replace(/\s+/g, ' ');
+    if (!/^MANGUEIRA/.test(t) || !/TERMINAL|MONTAD|PRENSAD/.test(t)) return null;
+    const dash = dashDe(t); if (!dash) return null;
+    const psi = psiDe(t);
+    let fams = null;
+    const tc = t.replace(/\s+/g, '');
+    for (const [rx, f] of NORMA_FAM) if (rx.test(t) || rx.test(tc)) { fams = f; break; }
+    const porNorma = !!fams;
+    if (!fams) fams = familiaPorConstrucao(t, psi);
+    if (!fams) return null;
+    let mang = null, fam = null, altsM = [];
+    const pm = prefMarcaMang(ctx, cat);
+    for (const f of fams) {
+      const l = cat._mang.get(dash + '|' + f); if (!l || !l.length) continue;
+      const pref = pm ? l.find(o => marcaMang(o.a) === pm) : null;
+      mang = pref || l[0]; fam = f; altsM = l.filter(o => o !== mang).slice(0, 3); break;
+    }
+    if (!mang) return null;
+    // terminais
+    const R = cat._ftm; const sg = segmentos(tc);
+    const ters = [];
+    if (sg) {
+      const umaTrama = /AGR1|C1T|M3K/.test(fam);
+      for (const s of [sg.a, sg.b]) {
+        if (!s) continue;
+        let x = terminal(s, dash, umaTrama, tc); if (!x || !x.td) { ters.push(null); continue; }
+        if (x.opcoes) {
+          const fk = dash + fam;
+          const sc = (o) => { const b = dash + 'G' + o.td + o.T; return (R.co[fk + '|' + b] || 0) * 1000 + (R.tot[b] || 0); };
+          x = x.opcoes.slice().sort((p, q) => sc(q) - sc(p))[0];
+        }
+        const ang = angDe(s); const b = dash + 'G' + x.td + x.T + ang;
+        const l = cat._ter.get(b) || [];
+        const inox = /INOX|AISI|316|304/.test(s) || /TERMINAL[^;]*INOX/.test(tc);
+        const o = (inox ? l.find(z => /INOX/.test(z.a)) : l.find(z => !/INOX/.test(z.a))) || l[0] || null;
+        ters.push(o ? { prod: o, apelido: b } : { prod: null, apelido: b });
+      }
+      if (ters.length === 1) ters.push(ters[0]);
+    }
+    const comprimento = comprimentoDe(t);
+    const capaId = R.capa[mang.id]; const capa = capaId ? cat.get(capaId) : null;
+    // FTM idêntica
+    let ftm = null;
+    if (ters.length === 2 && ters.every(x => x && x.prod)) {
+      const l = cat._ftmIx.get(mang.id + '|' + ters.map(x => x.prod.id).sort().join('+')) || [];
+      ftm = l.find(([n, met]) => comprimento && met === comprimento) || null;
+      if (!ftm && l.length) ftm = ['~' + l[0][0], l[0][1]];
+    }
+    return { dash, fam, porNorma, mang, altsM, ters, comprimento, capa, ftm };
+  }
+
   // ---------------- travas (arcfill2.strict) ----------------
   function toks(s) {
     s = comp(s).replace(/1\.1\//g, '11/');
@@ -911,6 +1148,7 @@
     usarDescricao: false,  // sugerir só pela descrição (fraco em textos SAP longos — melhor usar a IA)
     regrasSap: true,       // sem REF: montar o REF pela descrição SAP (conexões de tubo, Tupy)
     regrasCorreia: true,   // correias: casa perfil + comprimento + largura/canais
+    regrasMangueira: true, // mangueira montada: mangueira + terminais + capa pelo histórico de FTMs
     travas: { material: true, rosca: true, tipo: true, medidas: true }
   };
 
@@ -1011,6 +1249,22 @@
         }
       }
     }
+    // 4e) mangueira montada: mangueira + terminais + capa (componentes do cadastro)
+    if (P.regrasMangueira !== false && /^MANGUEIRA/.test(det)) {
+      const x = mangueiraRule(det, cat, ctx);
+      if (x) {
+        const comps = [{ papel: 'mangueira', id: x.mang.id, apelido: x.mang.a, qtd: x.comprimento ? Math.round(x.comprimento) / 1000 : null, un: 'm' }];
+        let faltam = 0;
+        x.ters.forEach((tt, k) => { if (tt && tt.prod) comps.push({ papel: 'terminal ' + (k ? 'B' : 'A'), id: tt.prod.id, apelido: tt.prod.a, qtd: 1, un: 'pc' }); else { faltam++; comps.push({ papel: 'terminal ' + (k ? 'B' : 'A'), id: null, apelido: tt ? tt.apelido + ' (não cadastrado)' : 'não identificado', qtd: 1, un: 'pc' }); } });
+        if (!x.ters.length) faltam = 2;
+        if (x.capa) comps.push({ papel: 'capa', id: x.capa.id, apelido: x.capa.a, qtd: 2, un: 'pc' });
+        const resumo = comps.map(c => (c.papel === 'mangueira' && c.qtd ? c.qtd.toLocaleString('pt-BR') + ' m ' : '') + c.apelido).join(' + ');
+        const conf = x.porNorma && !faltam ? 'media' : 'baixa';
+        const nota = x.ftm ? (String(x.ftm[0]).startsWith('~') ? ' — já montada antes como FTM ' + String(x.ftm[0]).slice(1) + ' (outro comprimento)' : ' — igual à FTM ' + x.ftm[0]) : '';
+        return res(x.mang.id, 'regra-mangueira', conf, 'Montagem: ' + resumo + nota + (faltam ? ' — terminal a conferir' : ''), null,
+          { componentes: comps, ftm: x.ftm ? String(x.ftm[0]).replace('~', '') : null, alternativas: x.altsM.map(o => ({ id: o.id, score: null, recusa: 'outra mangueira ' + x.fam })) });
+      }
+    }
     // 4d) correias planas (cortadas sob medida)
     if (P.regrasCorreia !== false && /CORREIA|ESTEIRA|LENCOL|BELT/.test(det)) {
       const x = correiaPlanaRule(det + (ref ? ' REF ' + up(ref) : ''), cat);
@@ -1091,7 +1345,7 @@
   const Motor = {
     deacc, up, comp, norm, tofrac, sizes, sideSpec, terminalRule, adapterRule, travas, threads, types, toks,
     Catalogo, Aprendizado, sugerir, medidasDescricaoOk, PADRAO, bitolaCliente,
-    conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule, parsePlana, correiaPlanaRule, agregarCortes, parseLL, agregarKits
+    conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule, parsePlana, correiaPlanaRule, agregarCortes, parseLL, agregarKits, agregarFtm, mangueiraRule
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = Motor;
   else root.Motor = Motor;

@@ -89,6 +89,7 @@ const Intel = (function(){
       S.catalogoInfo = Object.assign({}, S.catalogoInfo || {}, reg.catalogo || {});
       S.cortesInfo = reg.cortes || null;
       S.kitsInfo = reg.kits || null;
+      S.ftmInfo = reg.ftm || null;
       try { localStorage.setItem(PARAMS_STORAGE_KEY, JSON.stringify(PARAMS)); } catch (e){}
       HOJE = dataReferencia();
     } catch (e){ console.warn('[Parâmetros]', e.message || e); }
@@ -138,7 +139,24 @@ const Intel = (function(){
     S.aprendizado = null;
     await anexarCortes(S.catalogo);
     await anexarKits(S.catalogo);
+    await anexarFtm(S.catalogo);
     return S.catalogo;
+  }
+  // histórico de FTMs (mangueiras montadas): resumo no arquivo do motor -> cache
+  async function anexarFtm(cat){
+    try {
+      const cache = await IDB.get('ftm');
+      const versao = S.ftmInfo && S.ftmInfo.versao;
+      let R = (cache && cache.resumo && (!DB_ATIVO || !versao || cache.versao === versao)) ? cache.resumo : null;
+      if (!R && DB_ATIVO && versao){
+        const { data, error } = await supabaseClient.storage.from('motor').download('ftm.json.gz');
+        if (error || !data) throw error || new Error('sem arquivo ftm.json.gz');
+        R = JSON.parse(await new Response(data.stream().pipeThrough(new DecompressionStream('gzip'))).text());
+        await IDB.set('ftm', { versao, resumo: R });
+      }
+      if (!R && cache && cache.resumo) R = cache.resumo;
+      if (R){ cat.definirFtm(R); S.ftmTotal = (R.ftms || []).length; }
+    } catch (e){ console.warn('[FTM]', e.message || e); }
   }
   // kits SGM: arquivo do motor -> tabela -> cache
   async function anexarKits(cat){
@@ -579,7 +597,7 @@ const Intel = (function(){
         const s = Motor.sugerir({ codCliente: l.cod_cliente, descricao: l.descricao_cliente, ref: l.ref }, ctx);
         RP.itens.push(Object.assign({}, l, {
           produto_id: s.produto_id, metodo: s.metodo, confianca: s.confianca, score: s.score, motivo: s.motivo,
-          alternativas: s.alternativas || [], status: s.produto_id ? 'sugerido' : 'sem_cadastro'
+          alternativas: s.alternativas || [], componentes: s.componentes || null, ftm: s.ftm || null, status: s.produto_id ? 'sugerido' : 'sem_cadastro'
         }));
         if (i % 25 === 0){ bar.style.width = (i / linhas.length * 100) + '%'; prog.querySelector('span').textContent = `Respondendo item ${i + 1} de ${linhas.length}...`; await espera(); }
       }
@@ -673,7 +691,7 @@ const Intel = (function(){
         <td class="mono">${esc(it.cod_cliente)}</td>
         <td class="intel-desc" title="${esc(it.descricao_cliente)}">${esc(it.descricao_cliente.slice(0, 110))}${it.ref ? `<div class="intel-muted">REF: ${esc(it.ref)}</div>` : ''}</td>
         <td>${num(it.qtd_estimada).toLocaleString('pt-BR')} ${esc(it.un || '')}</td>
-        <td>${it.produto_id ? `<span class="mono">${esc(it.produto_id)}</span> · ${esc(apelidoProduto(it.produto_id))}<div class="intel-muted">${esc(descProduto(it.produto_id))}</div>` : '<span class="intel-muted">—</span>'}</td>
+        <td>${it.produto_id ? `<span class="mono">${esc(it.produto_id)}</span> · ${esc(apelidoProduto(it.produto_id))}<div class="intel-muted">${esc(descProduto(it.produto_id))}</div>` : '<span class="intel-muted">—</span>'}${(it.componentes || []).length ? `<ul class="rp-comps">${it.componentes.map(c => `<li><span class="intel-muted">${esc(c.papel)}:</span> ${c.id ? `<span class="mono">${esc(c.id)}</span> · ` : ''}${esc(c.apelido || '')}${c.qtd ? ` <span class="intel-muted">× ${String(c.qtd).replace('.', ',')} ${esc(c.un || '')}</span>` : ''}</li>`).join('')}</ul>` : ''}</td>
         <td><span class="badge ${confCls}">${{ alta: 'Alta', media: 'Média', baixa: 'Baixa', sem_cadastro: 'Sem cadastro' }[conf] || conf}</span><div class="intel-muted rp-motivo">${esc(it.motivo || '')}</div></td>
         <td>${up_ ? brl(up_.preco) + `<div class="intel-muted">${up_.doCliente ? 'deste cliente' : 'outro cliente'} · ${dataBR(up_.data)}</div>` : '—'}</td>
         <td class="rp-acoes">
@@ -801,7 +819,7 @@ const Intel = (function(){
         ref: it.ref || null, un: it.un || null, qtd_estimada: num(it.qtd_estimada), preco_contratado: it.preco_contratado == null ? null : num(it.preco_contratado),
         produto_id: it.produto_id || null, status: it.status || (it.produto_id ? 'sugerido' : 'sem_cadastro'), metodo: it.metodo || null,
         confianca: it.confianca || null, score: it.score == null ? null : it.score, motivo: it.motivo || null,
-        alternativas: (it.alternativas || []).slice(0, 8)
+        alternativas: (it.alternativas || []).slice(0, 8), componentes: it.componentes || null
       }));
       const chave = chaveCliente(c);
       const dp = RP.itens.filter(it => it.status === 'aprovado' && it.produto_id && it.cod_cliente)
@@ -813,7 +831,13 @@ const Intel = (function(){
           const del = await supabaseClient.from('contrato_itens').delete().eq('contrato_id', id);
           if (del.error) throw del.error;
           const novos = [];
-          await emLotes(linhas, 500, async (l) => { const { data, error } = await supabaseClient.from('contrato_itens').insert(l).select(); if (error) throw error; novos.push(...data); });
+          let semComp = false;
+          await emLotes(linhas, 500, async (l) => {
+            let { data, error } = await supabaseClient.from('contrato_itens').insert(semComp ? l.map(({ componentes, ...x }) => x) : l).select();
+            if (error && /componentes/.test(error.message || '')){ semComp = true; ({ data, error } = await supabaseClient.from('contrato_itens').insert(l.map(({ componentes, ...x }) => x)).select()); }
+            if (error) throw error; novos.push(...data);
+          });
+          if (semComp) showToast('Salvo sem os componentes das montagens — rode o inteligencia.sql atualizado no Supabase');
           if (unicos.length) await emLotes(unicos, 500, async (l) => { const { error } = await supabaseClient.from('de_para').upsert(l, { onConflict: 'cliente_chave,cod_cliente' }); if (error) throw error; });
           S.itens = S.itens.filter(x => x.contrato_id !== id).concat(novos);
           const { data: dpAll } = await supabaseClient.from('de_para').select('*').eq('cliente_chave', chave);
@@ -843,10 +867,11 @@ const Intel = (function(){
 
   function baixarRespondida(){
     const contrato = CONTRATOS.find(c => c.id === ($('rp-contrato').value || RP.contratoId));
-    const extra = ['ID MELTING', 'APELIDO MELTING', 'DESCRIÇÃO MELTING', 'CONFIANÇA', 'STATUS', 'COMO FOI ENCONTRADO', 'ÚLTIMO PREÇO', 'DATA ÚLTIMO PREÇO'];
+    const extra = ['ID MELTING', 'APELIDO MELTING', 'DESCRIÇÃO MELTING', 'COMPONENTES (MONTAGEM)', 'CONFIANÇA', 'STATUS', 'COMO FOI ENCONTRADO', 'ÚLTIMO PREÇO', 'DATA ÚLTIMO PREÇO'];
+    const compsTxt = (it) => (it.componentes || []).map(c => (c.qtd ? String(c.qtd).replace('.', ',') + (c.un === 'm' ? ' m ' : 'x ') : '') + (c.id ? c.id + ' ' : '') + (c.apelido || '')).join(' + ');
     const valores = (it) => {
       const u = it.produto_id ? ultimoPreco(it.produto_id, contrato) : null;
-      return [it.produto_id ? (isNaN(Number(it.produto_id)) ? it.produto_id : Number(it.produto_id)) : 'NÃO ENCONTRADO', apelidoProduto(it.produto_id), descProduto(it.produto_id),
+      return [it.produto_id ? (isNaN(Number(it.produto_id)) ? it.produto_id : Number(it.produto_id)) : 'NÃO ENCONTRADO', apelidoProduto(it.produto_id), descProduto(it.produto_id), compsTxt(it),
         it.produto_id ? it.confianca : 'sem cadastro', it.status, it.motivo || '', u ? u.preco : null, u ? dataBR(u.data) : null];
     };
     let wb;
@@ -1102,6 +1127,40 @@ const Intel = (function(){
     } catch (e){ console.error(e); st.textContent = 'Erro: ' + (e.message || e); }
   }
 
+  // FTMs: relpro_ftm (CSV/XLS) -> resumo compacto (uso de mangueiras/terminais, capas, FTMs para achar idênticas)
+  async function importarFtm(files){
+    const st = $('base-ftm-status'); const bar = $('base-ftm-bar');
+    try {
+      const rows = [];
+      for (const f of files){
+        st.textContent = 'Lendo ' + f.name + ' (arquivo grande, pode levar alguns segundos)...'; await espera();
+        const wb = XLSX.read(await f.arrayBuffer(), { type: 'array', raw: true });
+        const ls = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: null, raw: false });
+        ls.forEach(r => { const o = {}; for (const k in r) o[String(k).trim()] = r[k] == null ? null : String(r[k]).trim(); rows.push(o); });
+      }
+      st.textContent = 'Resumindo ' + rows.length.toLocaleString('pt-BR') + ' montagens...'; await espera();
+      const R = Motor.agregarFtm(rows);
+      if (!R.ftms.length){ st.textContent = 'Nenhuma FTM encontrada — confira se é a exportação relpro_ftm (colunas id/ftm, mang_id, ter1_id...).'; return; }
+      const versao = new Date().toISOString();
+      if (DB_ATIVO){
+        st.textContent = 'Gravando no arquivo do motor...'; bar.style.width = '60%'; await espera();
+        const gz = await gzipJSON(R);
+        if (!gz) throw new Error('navegador sem compressão');
+        const { error } = await supabaseClient.storage.from('motor').upload('ftm.json.gz', gz, { upsert: true, contentType: 'application/gzip' });
+        if (error) throw error;
+        await salvarParametro('ftm', { versao, total: R.ftms.length });
+        S.ftmInfo = { versao, total: R.ftms.length };
+      }
+      await IDB.set('ftm', { versao, resumo: R });
+      if (S.catalogo) S.catalogo.definirFtm(R);
+      S.ftmTotal = R.ftms.length;
+      bar.style.width = '100%';
+      st.textContent = `${R.ftms.length.toLocaleString('pt-BR')} montagens FTM resumidas${DB_ATIVO ? ' e gravadas no arquivo do motor' : ' (só neste navegador)'} · ${Object.keys(R.uso).length.toLocaleString('pt-BR')} mangueiras e ${Object.keys(R.usoTer).length.toLocaleString('pt-BR')} terminais diferentes.`;
+      atualizarStatusBase();
+      showToast('Histórico de FTMs importado');
+    } catch (e){ console.error(e); st.textContent = 'Erro: ' + (e.message || e); }
+  }
+
   // ensinar com planilha já respondida: mapeia código do cliente → ID
   const ENS = { wb: null, matriz: [], cab: 0 };
   async function lerEnsino(file){
@@ -1165,6 +1224,7 @@ const Intel = (function(){
       { l: 'Produtos no catálogo do motor', v: S.catalogo ? S.catalogo.byId.size.toLocaleString('pt-BR') : (ci.total ? ci.total.toLocaleString('pt-BR') : '0'), s: S.catalogo ? `${S.catalogo.lista.length.toLocaleString('pt-BR')} ativos · ${ci.origem || ''}` : (ci.versao ? 'ainda não carregado neste navegador' : 'importe o cadastro abaixo') },
       { l: 'Vendas carregadas', v: S.vendas.length.toLocaleString('pt-BR'), s: datas.length ? dataBR(datas[0]) + ' a ' + dataBR(datas[datas.length - 1]) + ' · só clientes ligados a contratos' : 'ligue os contratos ao cliente no SIG' },
       { l: 'De-para (memória do motor)', v: S.depara.length.toLocaleString('pt-BR'), s: clientesDp.size + ' cliente(s)' },
+      { l: 'Mangueiras montadas (FTM)', v: (S.ftmTotal || (S.ftmInfo && S.ftmInfo.total) || 0).toLocaleString('pt-BR'), s: S.ftmTotal ? 'histórico de montagens (relpro_ftm)' : 'importe o relpro_ftm abaixo' },
       { l: 'Kits SGM', v: ((S.kitsLinhas || []).length || (S.kitsInfo && S.kitsInfo.total) || 0).toLocaleString('pt-BR'), s: (S.kitsLinhas || []).length ? 'produtos montados (relpro_sgm)' : 'importe o relpro_sgm abaixo' },
       { l: 'Cortes de correia plana', v: (S.cortesTotal || (S.cortesInfo && S.cortesInfo.total) || 0).toLocaleString('pt-BR'), s: S.cortesTotal ? 'material × medida (relpro_nita / relpro_mec)' : 'importe o relpro_nita / relpro_mec abaixo' },
       { l: 'Itens de contrato', v: S.itens.length.toLocaleString('pt-BR'), s: new Set(S.itens.map(i => i.contrato_id)).size + ' contrato(s) com itens' }
@@ -1183,6 +1243,7 @@ const Intel = (function(){
     liga('base-ven-file', 'base-ven-dz', importarVendas);
     liga('base-cor-file', 'base-cor-dz', importarCortes);
     liga('base-kit-file', 'base-kit-dz', importarKits);
+    liga('base-ftm-file', 'base-ftm-dz', importarFtm);
     liga('ens-file', 'ens-dz', (fs) => lerEnsino(fs[0]).catch(e => showToast('Erro: ' + e.message)));
     const ea = $('ens-aba'); if (ea) ea.addEventListener('change', e => selecionarAbaEnsino(e.target.value));
     const ec = $('ens-cab'); if (ec) ec.addEventListener('change', e => { ENS.cab = Math.max(0, Number(e.target.value) - 1); renderEnsinoMapa(); });

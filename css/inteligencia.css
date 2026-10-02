@@ -76,3 +76,5 @@
 #tbl-cs td{ font-size:13px; }
 #tbl-cs td.num{ text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
 #tbl-cs mark{ background:rgba(255,200,0,.35); color:inherit; border-radius:2px; }
+.rp-comps{ margin:6px 0 0; padding-left:16px; font-size:12px; }
+.rp-comps li{ margin:1px 0; }

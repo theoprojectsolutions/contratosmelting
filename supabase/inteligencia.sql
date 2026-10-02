@@ -82,6 +82,8 @@ create table if not exists public.contrato_itens (
   atualizado_em     timestamptz not null default now()
 );
 create index if not exists contrato_itens_contrato_idx on public.contrato_itens (contrato_id);
+-- montagens (mangueira + terminais + capa): componentes escolhidos pelo motor
+alter table public.contrato_itens add column if not exists componentes jsonb;
 create index if not exists contrato_itens_produto_idx on public.contrato_itens (produto_id);
 
 create or replace function public.set_atualizado_em()
