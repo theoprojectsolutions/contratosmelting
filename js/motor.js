@@ -385,7 +385,7 @@
   // Lê perfil + comprimento + largura (ou nº de canais) tanto da descrição do
   // cliente quanto do cadastro, e casa pelo mesmo conjunto. Marca pedida tem
   // preferência; sem a marca, sugere outra (conferir) e lista as demais.
-  const PERF_SINC = '(?:S?(?:2|3|5|8|14|20)M(?:GT[E2-5]?|R?PP\\d?|CXP)?|(?:[2358]|14)GTE?\\d?|8YU|AT?(?:3|5|10|20)|T(?:2\\.5|10|20|5|2)|MXL|XXH|XH|XL|H|L)';
+  const PERF_SINC = '(?:D?S?(?:2|3|5|8|14|20)M(?:GT[E2-5]?|R?PP\\d?|CXP)?|(?:[2358]|14)GTE?\\d?|8YU|AT?(?:3|5|10|20)|T(?:2\\.5|10|20|5|2)|MXL|XXH|XH|XL|DH|H|L)';
   const RX_SINC = new RegExp('(?:^|[^A-Z0-9])(TP|D)?\\s*-?\\s*(\\d{2,5})\\s*-?\\s*(' + PERF_SINC + ')(?:(?:\\s*-\\s*|\\s+)(\\d{1,3}(?:[.,]\\d{1,2})?))?(?![A-Z0-9])');
   const RX_SINC_PF = new RegExp('(?:^|[^A-Z0-9])(TP|D)?\\s*(' + PERF_SINC + ')\\s*-\\s*(\\d{2,5})(?:\\s*-\\s*(\\d{1,3}))?(?![A-Z0-9])');
   const RX_MV = [/(?:^|[^A-Z0-9])(\d{2,5})\s*-?\s*(PH|PJ|PK|PL|PM|J|K|L|M)\s*-?\s*(\d{1,2})?(?![A-Z0-9])/, /(?:^|[^A-Z0-9])(PH|PJ|PK|PL|PM)\s*-?\s*(\d{3,5})(?![A-Z0-9])/, /(?:^|[^A-Z0-9])(\d{1,2})\s*(PH|PJ|PK|PL|PM)\s*-?\s*(\d{3,5})(?![A-Z0-9])/];
@@ -394,8 +394,16 @@
   function marcaCorreia(s) { const u = up(s); for (const [n, rx] of MARCAS_CORREIA) if (rx.test(u)) return n; return null; }
   const num = (x) => x == null ? null : Number(String(x).replace(',', '.'));
   function parseCorreia(texto, ehCadastro) {
-    const t = up(texto).replace(/\s+/g, ' ');
-    if (!/CORREIA|SLAB|BELT/.test(t)) return null;
+    let t = up(texto).replace(/\s+/g, ' ');
+    if (!/CORREIA|\bCORR\b|SLAB|BELT/.test(t)) return null;
+    // formatos curtos de cadastro de cliente: 1040X8MX30, 10408M30 colado, 50DZ, 2500MM
+    if (!ehCadastro) {
+      t = t.replace(/(\d{3,5})\s*X\s*(D?(?:S?(?:3|5|8|14|20)M|XL|XH|H|L|T5|T10|AT5|AT10))\s*X\s*(\d{1,3})/, '$1 $2 $3')
+           .replace(/(?:^|\s)(\d{3,4})(S?(?:3|5|8|14)M)(\d{2,3})(?=\s|$)/, ' $1 $2 $3')
+           .replace(/(?:^|\s)(\d{2,4})(XL|XH|L|H)(0\d{2}|\d{3})(?=\s|$)/, ' $1 $2 $3')
+           .replace(/(\d)(DZ|ABS|SML)\b/g, '$1 $2').replace(/(\d)MM\b/g, '$1')
+           .replace(/\bMULTI\s*V(?=\s*\d)/, 'MICRO V ');
+    }
     const twin = /TWIN|DUPLA SINC|DUPLO DENTE|DUPLA DENTADA|DOUBLE/.test(t);
     const largTexto = () => { const w = t.match(/(?:^|[;,\s])(?:L|LARG(?:URA)?)\s*[.:]?\s*(\d{1,3}(?:[.,]\d)?)\s*(?:MM)?(?![\d])/) || t.match(/\bX\s*(\d{1,3})\s*MM\b/); return w ? num(w[1]) : null; };
     const canais = () => { const w = t.match(/(\d{1,2})\s*(?:CANAIS|NERVURAS|RIBS|FRISOS|ESTRIAS)/) || t.match(/(?:CANAIS|NERVURAS|RIBS|FRISOS|ESTRIAS)\s*:?\s*(\d{1,2})/); return w ? +w[1] : null; };
@@ -422,6 +430,7 @@
       if (ce && pe && (!m || !m[4])) { m = null; tp = /\bTP\b|TWIN/.test(t) ? 'TP' : null; comp = Math.round(num(ce[1])); perfil = pe[1]; larg = largTexto(); }
       else if (!m && !ehCadastro && (m = t.match(new RegExp('(?:^|[^A-Z0-9])(TP|D)?\\s*(' + PERF_SINC + ')\\s+(\\d{3,5})\\s+(\\d{1,3})(?![A-Z0-9])')))) { tp = m[1]; perfil = m[2]; comp = +m[3]; larg = +m[4]; m = null; }
       if (m) { tp = m[1]; comp = +m[2]; perfil = m[3]; larg = num(m[4]); }
+      if (perfil && /^D(?=\d|H$|XL$|L$)/.test(perfil)) { perfil = perfil.slice(1); tp = 'TP'; }
       else if ((m = t.match(RX_SINC_PF))) { tp = m[1]; perfil = m[2]; comp = +m[3]; larg = num(m[4]); }
       if (m || perfil) {
         const g = perfil.match(/^(.*GT)([2-5])$/);
@@ -1149,6 +1158,8 @@
     regrasSap: true,       // sem REF: montar o REF pela descrição SAP (conexões de tubo, Tupy)
     regrasCorreia: true,   // correias: casa perfil + comprimento + largura/canais
     regrasMangueira: true, // mangueira montada: mangueira + terminais + capa pelo histórico de FTMs
+    descricaoCurta: true,  // descrições curtas: semelhança com o cadastro, todos os números iguais
+    simCurta: 0.25,
     travas: { material: true, rosca: true, tipo: true, medidas: true }
   };
 
@@ -1327,6 +1338,29 @@
       const x = ctx.aprendizado.prever(det, P.simAprendido);
       if (x && x.score >= P.simAprendido && medidasDescricaoOk(cat.get(x.id), det) && !travas(cat.get(x.id), ref, det, Object.assign({}, tr, { medidas: !!ref }))) {
         return res(x.id, 'aprendido', 'baixa', 'Padrão de item parecido já aprovado (ID ' + x.base + '), trocando a bitola', x.score);
+      }
+    }
+    // 6b) descrição curta (cadastro do cliente parecido com o da Melting): busca por
+    //     semelhança com travas fortes — mesmo tipo de peça, todos os números do pedido
+    //     no candidato, correia dupla (TP) só se pedida, travas de material/rosca.
+    if (P.descricaoCurta !== false && !ref && det.length <= 90 && (det.match(/;/g) || []).length < 2) {
+      const GRUPOS = [[/^(CORREIA|CORR|ESTEIRA|EST|SLAB|LENCOL|TAPETE)\b/, /CORREIA|ESTEIRA|SLAB|LENCOL|TAPETE|\*\d+X\d+\*|^[A-Z0-9 .\/-]*\*\d/], [/^(MANGUEIRA|MANGOTE|MANG)\b/, /MANG|TUBO/], [/^POLIA\b/, /POLIA/], [/^FELTRO\b/, /FELTRO/], [/^(ANEL|RETENTOR|ORING|O-RING)\b/, /ANEL|RETENTOR|ORING|O-RING/]];
+      const g = GRUPOS.find(([rx]) => rx.test(det));
+      const GEN = /^(CORREIA|CORR|ESTEIRA|EST|MANGUEIRA|MANG|MANGOTE|POLIA|FELTRO|TRANSPOR|TRANSP|TRANSPORTADORA|TRANSPORTE|PLANA|SINCRO|SINCRON|SINCRONIZ|SINCRONIZADA|EM|DE|DO|DA|COM|SEM|MM|POL|UN|PC|M|X|C|S|AF|AB|FEC|DZ|ABS|LISA|GUIA|CENTRAL|TIPO|FLEX|FLEXIVEL|AZUL|BRANCO|BRANCA|VERDE|PRETA|PRETO|CRISTAL)$/;
+      const marcas = up(det).split(/[^A-Z0-9]+/).filter(w => /[A-Z]/.test(w) && w.length >= 2 && !GEN.test(w)).map(comp);
+      const nums = (det.replace(/(\d),(\d)/g, '$1.$2').match(/\d+(?:\.\d+)?(?:\/\d+)?/g) || []).filter(x => x.length >= 2 || /\//.test(x));
+      if (nums.length) {
+        for (const c of cat.buscar(det, 25)) {
+          if (c.score < (P.simCurta || 0.25)) break;
+          const tx = up(c.prod.d + ' ' + c.prod.a).replace(/(\d),(\d)/g, '$1.$2');
+          if (g && !g[1].test(up(c.prod.d) + ' ' + c.prod.a)) continue;
+          if (!nums.every(n => new RegExp('(^|[^0-9.])' + n.replace('.', '\\.') + '(?![0-9])').test(tx))) continue;
+          // pelo menos uma palavra característica do pedido no candidato (tipo, material, marca, código)
+          if (marcas.length && !marcas.some(w => comp(tx).includes(w))) continue;
+          if (/(^|\s)TP\b|^TP\d|TWIN|DUPLA/.test(tx) && !/\bTP\b|TWIN|DUPLA|\bD8M|\bDH\b/.test(det)) continue;
+          if (travas(c.prod, null, det, Object.assign({}, tr, { tipo: false }))) continue;
+          return res(c.prod.id, 'descricao', c.score >= 0.5 ? 'media' : 'baixa', 'Descrição parecida com o cadastro e todos os números conferem — conferir', c.score, { alternativas: alternativas.slice(0, 5) });
+        }
       }
     }
     // 7) descrição
