@@ -1617,7 +1617,7 @@ const titles = {
   'detalhe-cotacao':'Detalhe da cotação',
   'perfil':'Meu perfil',
   'usuarios':'Usuários', 'historico':'Histórico de alterações',
-  'responder':'Responder planilha', 'base':'Base de dados', 'parametros':'Parâmetros'
+  'responder':'Responder planilha', 'base':'Base de dados', 'consulta':'Consultar base', 'parametros':'Parâmetros'
 };
 function goToView(view){
   const viewsRestritas = ['novo-contrato', 'nova-cotacao', 'novo-cliente', 'usuarios', 'historico', 'responder', 'base'];

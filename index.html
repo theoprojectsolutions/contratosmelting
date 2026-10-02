@@ -95,6 +95,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
         Base de dados
       </div>
+      <div class="nav-item" data-view="consulta">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/><path d="M8 11h6M11 8v6"/></svg>
+        Consultar base
+      </div>
       <div class="nav-item" data-view="parametros">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
         Parâmetros
@@ -322,6 +326,37 @@
             </div>
             <div class="form-actions" style="margin-top:14px;"><span class="intel-muted" id="ens-status"></span><button type="button" class="btn" id="ens-salvar">Aprender</button></div>
           </div>
+        </div>
+      </section>
+
+      <!-- ===== CONSULTAR BASE ===== -->
+      <section class="view" id="view-consulta">
+        <div class="page-head">
+          <div class="page-head-row">
+            <div>
+              <div class="eyebrow">Base de dados</div>
+              <h2>Consultar o que foi cadastrado</h2>
+              <p>Tudo o que o motor conhece: produtos do SIG, histórico de cortes, de-para dos clientes, vendas e itens de contrato. Busca por qualquer parte do texto (código, apelido, descrição, cliente...).</p>
+            </div>
+            <div class="page-head-actions"><button class="btn btn-ghost" id="cs-baixar">Baixar em Excel</button></div>
+          </div>
+        </div>
+        <div class="cs-abas" id="cs-abas" role="tablist"></div>
+        <div class="filters">
+          <input class="filter-input" id="cs-busca" placeholder="Buscar..." style="min-width:300px;">
+          <select id="cs-filtro" hidden></select>
+          <span class="intel-spacer"></span>
+          <span class="intel-muted" id="cs-contagem"></span>
+        </div>
+        <div class="table-wrap">
+          <div class="table-scroll">
+            <table id="tbl-cs" class="intel-table"><thead></thead><tbody></tbody></table>
+          </div>
+        </div>
+        <div class="cs-paginacao">
+          <button type="button" class="btn btn-ghost" id="cs-ant">‹ Anterior</button>
+          <span class="intel-muted" id="cs-pagina"></span>
+          <button type="button" class="btn btn-ghost" id="cs-prox">Próxima ›</button>
         </div>
       </section>
 

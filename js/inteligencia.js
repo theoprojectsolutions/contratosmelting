@@ -156,7 +156,7 @@ const Intel = (function(){
         if (linhas && linhas.length) await IDB.set('cortes', { versao, linhas });
       }
       if (!linhas && cache && cache.linhas) linhas = cache.linhas;
-      if (linhas && linhas.length){ cat.definirCortes(linhas); S.cortesTotal = linhas.length; }
+      if (linhas && linhas.length){ cat.definirCortes(linhas); S.cortesTotal = linhas.length; S.cortesLinhas = linhas; }
     } catch (e){ console.warn('[Cortes]', e.message || e); }
   }
   function descProduto(id){
@@ -1036,7 +1036,7 @@ const Intel = (function(){
       }
       await IDB.set('cortes', { versao, linhas });
       if (S.catalogo) S.catalogo.definirCortes(linhas);
-      S.cortesTotal = linhas.length;
+      S.cortesTotal = linhas.length; S.cortesLinhas = linhas;
       bar.style.width = '100%';
       st.textContent = `${rows.length.toLocaleString('pt-BR')} cortes lidos · ${linhas.length.toLocaleString('pt-BR')} combinações material × medida${DB_ATIVO ? ' gravadas no banco' : ' (só neste navegador)'}.`;
       atualizarStatusBase();
@@ -1199,15 +1199,109 @@ const Intel = (function(){
     if (bp) bp.addEventListener('click', () => { PARAMS = mesclarParams(PARAMS_PADRAO, {}); renderParametros(); showToast('Valores padrão carregados — clique em Salvar para confirmar'); });
   }
 
+  // ---------------- consultar base (tudo o que foi cadastrado) ----------------
+  const CS = { aba: 'produtos', busca: '', filtro: '', pagina: 0, porPagina: 50, linhas: [] };
+  const norm = (s) => Motor.up(s == null ? '' : String(s));
+  const descId = (id) => { const p = S.catalogo && S.catalogo.get(id); return p ? p.d : ''; };
+  const ABAS_CS = {
+    produtos: {
+      titulo: 'Produtos', total: () => S.catalogo ? S.catalogo.byId.size : 0,
+      linhas: () => S.catalogo ? [...S.catalogo.byId.values()] : [],
+      filtro: { nome: 'Todas as origens', valores: () => [...new Set(S.catalogo ? [...S.catalogo.byId.values()].map(p => p.origem).filter(Boolean) : [])].sort(), campo: (p) => p.origem },
+      colunas: [['ID', p => p.id, 'mono'], ['Apelido', p => p.a, 'mono'], ['Descrição', p => p.d], ['Origem', p => p.origem], ['Família', p => p.familia], ['UM', p => p.um], ['Situação', p => p.ativo ? 'Ativo' : 'Inativo']]
+    },
+    cortes: {
+      titulo: 'Cortes (correias planas)', total: () => (S.cortesLinhas || []).length,
+      linhas: () => (S.cortesLinhas || []).map(([material, base, larg, comp, vezes]) => ({ material, base, larg, comp, vezes })),
+      colunas: [['Material', r => r.material, 'mono'], ['ID base', r => r.base, 'mono'], ['Material base no cadastro', r => descId(r.base)], ['Largura (mm)', r => r.larg, 'num'], ['Comprimento (mm)', r => r.comp, 'num'], ['Vezes cortado', r => r.vezes, 'num']]
+    },
+    depara: {
+      titulo: 'De-para dos clientes', total: () => S.depara.length,
+      linhas: () => S.depara,
+      filtro: { nome: 'Todos os clientes', valores: () => [...new Set(S.depara.map(d => d.cliente_chave))].sort(), campo: (d) => d.cliente_chave },
+      colunas: [['Cliente', d => d.cliente_chave], ['Código do cliente', d => d.cod_cliente, 'mono'], ['ID Melting', d => d.produto_id, 'mono'], ['Descrição Melting', d => descId(d.produto_id)], ['Descrição do cliente', d => d.descricao_cliente], ['Origem', d => d.origem]]
+    },
+    vendas: {
+      titulo: 'Vendas', total: () => S.vendas.length,
+      linhas: () => S.vendas,
+      colunas: [['Data', v => v.data ? dataBR(v.data) : ''], ['Pedido', v => v.pedido, 'mono'], ['Cliente', v => v.cliente_nome || v.cliente_codigo], ['ID', v => v.produto_id, 'mono'], ['Descrição', v => v.descricao || descId(v.produto_id)], ['Cód. cliente', v => v.ref_cliente, 'mono'], ['Qtd', v => v.quantidade, 'num'], ['Preço unit.', v => v.preco_unit != null ? brl(v.preco_unit) : '', 'num']]
+    },
+    itens: {
+      titulo: 'Itens de contrato', total: () => S.itens.length,
+      linhas: () => S.itens,
+      filtro: { nome: 'Todos os contratos', valores: () => [...new Set(S.itens.map(i => i.contrato_id))].sort(), campo: (i) => i.contrato_id },
+      colunas: [['Contrato', i => i.contrato_id, 'mono'], ['Linha', i => i.linha, 'num'], ['Código do cliente', i => i.cod_cliente, 'mono'], ['Descrição do cliente', i => i.descricao_cliente], ['ID Melting', i => i.produto_id, 'mono'], ['Descrição Melting', i => descId(i.produto_id)], ['Status', i => i.status], ['Método', i => i.metodo], ['Qtd est.', i => i.qtd_estimada, 'num']]
+    }
+  };
+  function filtrarConsulta(){
+    const A = ABAS_CS[CS.aba];
+    let ls = A.linhas();
+    if (CS.filtro && A.filtro) ls = ls.filter(r => A.filtro.campo(r) === CS.filtro);
+    const termos = norm(CS.busca).split(/\s+/).filter(Boolean);
+    if (termos.length){
+      ls = ls.filter(r => { const t = norm(A.colunas.map(c => c[1](r)).join(' ')); return termos.every(x => t.includes(x)); });
+    }
+    CS.linhas = ls;
+  }
+  function marcar(txt){
+    const s = esc(txt == null ? '' : String(txt));
+    const termos = CS.busca.trim().split(/\s+/).filter(x => x.length >= 2);
+    if (!termos.length) return s;
+    let out = s;
+    for (const t of termos){ const rx = new RegExp('(' + esc(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig'); out = out.replace(rx, '<mark>$1</mark>'); }
+    return out;
+  }
+  function renderConsulta(refiltrar){
+    const A = ABAS_CS[CS.aba];
+    $('cs-abas').innerHTML = Object.entries(ABAS_CS).map(([k, a]) =>
+      `<button type="button" class="cs-aba" role="tab" data-aba="${k}" aria-selected="${k === CS.aba}"><b>${esc(a.titulo)}</b><span class="cs-n">${a.total().toLocaleString('pt-BR')}</span></button>`).join('');
+    const f = $('cs-filtro');
+    if (A.filtro){
+      f.hidden = false;
+      f.innerHTML = `<option value="">${esc(A.filtro.nome)}</option>` + A.filtro.valores().map(v => `<option ${v === CS.filtro ? 'selected' : ''}>${esc(v)}</option>`).join('');
+    } else f.hidden = true;
+    if (refiltrar !== false) filtrarConsulta();
+    const total = CS.linhas.length, paginas = Math.max(1, Math.ceil(total / CS.porPagina));
+    CS.pagina = Math.min(CS.pagina, paginas - 1);
+    const pag = CS.linhas.slice(CS.pagina * CS.porPagina, (CS.pagina + 1) * CS.porPagina);
+    const tbl = $('tbl-cs');
+    tbl.querySelector('thead').innerHTML = '<tr>' + A.colunas.map(c => `<th${c[2] === 'num' ? ' style="text-align:right"' : ''}>${esc(c[0])}</th>`).join('') + '</tr>';
+    tbl.querySelector('tbody').innerHTML = pag.length
+      ? pag.map(r => '<tr>' + A.colunas.map(c => `<td class="${c[2] || ''}">${c[2] === 'num' ? esc(c[1](r) == null ? '' : (typeof c[1](r) === 'number' ? c[1](r).toLocaleString('pt-BR') : c[1](r))) : marcar(c[1](r))}</td>`).join('') + '</tr>').join('')
+      : `<tr><td colspan="${A.colunas.length}" class="intel-muted" style="padding:24px;text-align:center;">${A.total() ? 'Nada encontrado com essa busca.' : (CS.aba === 'produtos' && !S.catalogo ? 'Carregando o catálogo...' : 'Nada cadastrado ainda — importe na tela Base de dados.')}</td></tr>`;
+    $('cs-contagem').textContent = total === A.total() ? `${total.toLocaleString('pt-BR')} registro(s)` : `${total.toLocaleString('pt-BR')} de ${A.total().toLocaleString('pt-BR')} registro(s)`;
+    $('cs-pagina').textContent = `Página ${CS.pagina + 1} de ${paginas.toLocaleString('pt-BR')}`;
+    $('cs-ant').disabled = CS.pagina === 0; $('cs-prox').disabled = CS.pagina >= paginas - 1;
+  }
+  function baixarConsulta(){
+    const A = ABAS_CS[CS.aba];
+    if (!CS.linhas.length){ showToast('Nada para baixar'); return; }
+    const linhas = [A.colunas.map(c => c[0])].concat(CS.linhas.map(r => A.colunas.map(c => { const v = c[1](r); return v == null ? '' : v; })));
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(linhas), A.titulo.slice(0, 30));
+    XLSX.writeFile(wb, 'melting-' + CS.aba + '.xlsx');
+  }
+  function setupConsulta(){
+    const abas = $('cs-abas'); if (!abas) return;
+    abas.addEventListener('click', e => { const b = e.target.closest('[data-aba]'); if (!b) return; CS.aba = b.dataset.aba; CS.filtro = ''; CS.pagina = 0; renderConsulta(); });
+    let t = null;
+    $('cs-busca').addEventListener('input', e => { clearTimeout(t); t = setTimeout(() => { CS.busca = e.target.value; CS.pagina = 0; renderConsulta(); }, 250); });
+    $('cs-filtro').addEventListener('change', e => { CS.filtro = e.target.value; CS.pagina = 0; renderConsulta(); });
+    $('cs-ant').addEventListener('click', () => { if (CS.pagina > 0){ CS.pagina--; renderConsulta(false); } });
+    $('cs-prox').addEventListener('click', () => { CS.pagina++; renderConsulta(false); });
+    $('cs-baixar').addEventListener('click', baixarConsulta);
+  }
+
   // ---------------- ganchos chamados pelo app.js ----------------
   function aoAbrirView(view){
     if (view === 'responder') popularContratosSelect($('rp-contrato') ? $('rp-contrato').value : '');
     if (view === 'base'){ atualizarStatusBase(); if (!S.catalogo) carregarCatalogo().then(atualizarStatusBase).catch(() => {}); }
     if (view === 'parametros') renderParametros();
+    if (view === 'consulta'){ renderConsulta(); if (!S.catalogo) carregarCatalogo().then(() => renderConsulta()).catch(() => {}); }
   }
 
   setupResponder();
   setupBase();
+  setupConsulta();
   // se o banco terminou de carregar antes deste arquivo, dispara a carga agora
   if (typeof DB_ATIVO !== 'undefined' && DB_ATIVO) setTimeout(() => aoCarregarBanco(), 0);
 

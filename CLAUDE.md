@@ -12,7 +12,7 @@ Edge Function). Idioma da interface, do código e dos comentários: português.
 - `js/parametros.js` — `PARAMS_PADRAO`, `PARAMS` (cache em localStorage, fonte da verdade na tabela `parametros`), `bucketsRegua()`.
 - `js/motor.js` — motor de resposta (sem dependências; roda no navegador e no Node). Exporta `Motor`.
 - `js/kpis.js` — cálculo puro de consumo real × estimado, ritmo, fora do contrato, KPIs de cotações. Exporta `Kpis`.
-- `js/inteligencia.js` — telas Responder planilha, Base de dados, Parâmetros, painel de itens no detalhe do contrato e KPIs extras do Dashboard. Exporta `Intel`.
+- `js/inteligencia.js` — telas Responder planilha, Base de dados, Consultar base (abas Produtos / Cortes / De-para / Vendas / Itens de contrato, busca, filtro, paginação, baixar Excel), Parâmetros, painel de itens no detalhe do contrato e KPIs extras do Dashboard. Exporta `Intel`.
 - `supabase/*.sql` — rodar na ordem: schema → perfis-e-permissoes → colunas-adicionais → data-recebimento-contratos → inteligencia.
 - `supabase/functions/responder-itens/index.ts` — Edge Function (Deno) que chama a API do Claude em dois passos (`consultas` e `escolher`). Segredo `ANTHROPIC_API_KEY`; modelo em `ANTHROPIC_MODEL` (padrão `claude-sonnet-5-5`).
 - `dev/testes/` — testes (ver abaixo). `dev/dados/` fica fora do git.

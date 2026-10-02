@@ -64,3 +64,15 @@
 [hidden]{ display:none !important; }
 .intel-scroll-y{ max-height:620px; overflow:auto; border:1px solid var(--border); border-radius:10px; }
 .intel-scroll-y thead th{ position:sticky; top:0; background:var(--card); z-index:1; }
+
+/* Consultar base */
+.cs-abas{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
+.cs-aba{ border:1px solid var(--border); background:var(--card); color:var(--ink-900); border-radius:999px; padding:7px 14px; font:inherit; font-size:13px; cursor:pointer; display:inline-flex; gap:8px; align-items:center; }
+.cs-aba b{ font-weight:600; }
+.cs-aba .cs-n{ font-size:12px; opacity:.7; font-variant-numeric:tabular-nums; }
+.cs-aba[aria-selected="true"]{ background:var(--brand-600); border-color:var(--brand-600); color:#fff; }
+.cs-aba[aria-selected="true"] .cs-n{ opacity:.9; }
+.cs-paginacao{ display:flex; gap:12px; align-items:center; justify-content:flex-end; margin-top:12px; }
+#tbl-cs td{ font-size:13px; }
+#tbl-cs td.num{ text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+#tbl-cs mark{ background:rgba(255,200,0,.35); color:inherit; border-radius:2px; }
