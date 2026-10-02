@@ -415,9 +415,14 @@
     if (pf && !/EM V\b|POWER ?BAND/.test(t)) return { fam: 'sinc', tp: twin, perfil: pf[2] + pf[3], ger: null, comp: +pf[1], larg: +pf[4] };
     if (!/EM V\b|POWER ?BAND|TRAPEZ/.test(t)) {
       let m = t.match(RX_SINC), comp, perfil, larg, tp;
+      // perfil + "COMPRIMENTO n" + "LARGURA n" escritos por extenso
+      const ce = !ehCadastro && t.match(/(?:^|[^A-Z])(?:COMPRIMENTO|COMPR|COMP)\s*[.:]?\s*(\d{2,5}(?:[.,]\d+)?)/);
+      const pe = !ehCadastro && t.match(new RegExp('(?:^|[^A-Z0-9])(' + PERF_SINC + ')(?![A-Z0-9])'));
+      if (ce && pe && (!m || !m[4])) { m = null; tp = /\bTP\b|TWIN/.test(t) ? 'TP' : null; comp = Math.round(num(ce[1])); perfil = pe[1]; larg = largTexto(); }
+      else if (!m && !ehCadastro && (m = t.match(new RegExp('(?:^|[^A-Z0-9])(TP|D)?\\s*(' + PERF_SINC + ')\\s+(\\d{3,5})\\s+(\\d{1,3})(?![A-Z0-9])')))) { tp = m[1]; perfil = m[2]; comp = +m[3]; larg = +m[4]; m = null; }
       if (m) { tp = m[1]; comp = +m[2]; perfil = m[3]; larg = num(m[4]); }
       else if ((m = t.match(RX_SINC_PF))) { tp = m[1]; perfil = m[2]; comp = +m[3]; larg = num(m[4]); }
-      if (m) {
+      if (m || perfil) {
         const g = perfil.match(/^(.*GT)([2-5])$/);
         if (larg == null && !ehCadastro) larg = largTexto();
         return { fam: 'sinc', tp: !!tp || twin, perfil: g ? g[1] : perfil.replace(/^HTD/, ''), ger: g ? g[2] : null, comp, larg };
@@ -467,6 +472,15 @@
   // Material pedido pelo código (LA-500, TFL-10S...) -> correia pronta no cadastro ou base + "cortar".
   // Outra marca (Habasit...) -> não escolhe material: lista os já cortados na mesma medida,
   // e só quando o pedido não fala em furo / talisca / acessório.
+  const PERFIS_LL = ['AT10', 'AT20', 'AT5', 'AT3', 'ATN10', 'ATN5', 'T10', 'T20', 'T5', 'T2', 'S14M', 'S8M', 'S5M', 'S3M', '14MGT', '8MGT', '14M', '8M', '5M', '3M', 'XXH', 'XH', 'XL', 'H', 'L'];
+  function parseLL(mat) {
+    const c = comp(mat);
+    if (!/^LL/.test(c)) return null;
+    let r = c.slice(2).replace(/^W(?=[A-Z])/, ''); // LLWH, LLWT = largura larga
+    const pf = PERFIS_LL.find(p => r.startsWith(p)); if (!pf) return null;
+    const w = r.slice(pf.length).match(/^(\d{1,3})/); if (!w) return null;
+    return { perfil: pf.replace(/^ATN/, 'AT'), larg: +w[1], variante: r.slice(pf.length + w[1].length) };
+  }
   const codPlana = (s) => comp(String(s || '').replace(/^\s*CORREIA\s+/i, '')).replace(/\//g, '');
   Catalogo.prototype.definirCortes = function (linhas) {
     const porCod = new Map(), porMedida = new Map();
@@ -479,7 +493,17 @@
     }
     // códigos também pelo nome do próprio produto base no cadastro ("CORREIA LA-1000")
     for (const [, v] of porCod) { const b = this.get(v.base); if (b) { const c2 = codPlana(b.d); if (c2 && !porCod.has(c2)) porCod.set(c2, v); } }
-    this._cortes = { porCod, porMedida };
+    // LL (Mectrol): correia PU em rolo, cortada no comprimento e emendada. Código = LL + perfil + largura + variante
+    const porLL = new Map();
+    for (const [mat, base, , cmp, n] of linhas || []) {
+      const ll = parseLL(mat); if (!ll || !base) continue;
+      const k = ll.perfil + '|' + ll.larg;
+      if (!porLL.has(k)) porLL.set(k, new Map());
+      const mm = porLL.get(k); const b = String(base);
+      if (!mm.has(b)) mm.set(b, { base: b, mat, variante: ll.variante, n: 0, comps: new Set() });
+      const o = mm.get(b); o.n += n || 1; o.comps.add(Number(cmp));
+    }
+    this._cortes = { porCod, porMedida, porLL };
   };
   Catalogo.prototype.indicePlanas = function () {
     if (this._planas) return this._planas;
@@ -500,7 +524,7 @@
       const desc = String(r.descricao || ''); const base = r.produto1_id;
       const mat = (desc.split('*')[1] || '').trim();
       const larg = Number(String(r.larg).replace(',', '.')), cmp = Number(String(r.comp).replace(',', '.'));
-      if (!mat || !base || !isFinite(larg) || !isFinite(cmp) || !larg || !cmp) continue;
+      if (!mat || !base || !isFinite(larg) || !isFinite(cmp) || !cmp) continue; // larg 0 = LL Mectrol (largura no código)
       const k = [mat, base, larg, cmp].join('|');
       g.set(k, (g.get(k) || 0) + 1);
     }
@@ -958,6 +982,22 @@
         const motivo = 'Regra de correia (' + desc + ')' + (x.marca && !x.mesmaMarca ? ' — marca ' + x.marca + ' não encontrada, equivalente ' + (best._marca || 'sem marca') : '') + (!x.marca && x.cands.length > 1 ? ' — ' + x.cands.length + ' marcas no cadastro, conferir' : '');
         return res(best.id, 'regra-correia', conf, motivo, null, { alternativas: alts });
       }
+      // correia sincronizadora sem pronta no cadastro: LL Mectrol (rolo cortado e emendado)
+      if (x && x.p.fam === 'sinc' && x.p.larg != null && cat._cortes && cat._cortes.porLL) {
+        const ll = cat._cortes.porLL.get(x.p.perfil + '|' + x.p.larg);
+        if (ll && ll.size) {
+          const D = det;
+          const opc = [...ll.values()].map(o => ({ o, peso: (o.comps.has(x.p.comp) ? 4 : 0) + (/ACO|STEEL/.test(D) && /ACO/.test(o.variante) ? 2 : 0) + (/KEVLAR|ARAMID/.test(D) === /KEVLAR/.test(o.variante) ? 2 : 0) + (/\bNT\b|NYLON/.test(D) === /NT/.test(o.variante) ? 1 : 0) + (/BRANC/.test(D) === /BRANC/.test(o.variante) ? 0.5 : 0) + (/MELT|BINLONG/.test(D) === /MELT/.test(o.variante) ? 0.3 : 0) + Math.log(1 + o.n) / 10 }))
+            .filter(({ o }) => cat.get(o.base) && ok(cat.get(o.base))).sort((a, b) => b.peso - a.peso);
+          if (opc.length) {
+            const b = opc[0].o; const ja = b.comps.has(x.p.comp);
+            const alts = opc.slice(1, 6).map(({ o }) => ({ id: o.base, score: null, recusa: 'LL ' + o.mat }));
+            return res(b.base, 'regra-correia', ja ? 'media' : 'baixa',
+              'Mectrol: LL ' + x.p.perfil + ' ' + x.p.larg + (b.variante ? ' ' + b.variante : '') + ' — cortar ' + x.p.comp + ' mm e emendar' + (ja ? ' (já feito nesse comprimento)' : ' (material já usado ' + b.n + 'x, conferir)'),
+              null, { alternativas: alts.concat((x.vizinhas || []).slice(0, 3).map(o => ({ id: o.id, score: null, recusa: 'pronta, largura ' + o._correia.larg }))) });
+          }
+        }
+      }
       if (x && x.vizinhas && x.vizinhas.length) {
         const w = x.p.fam === 'mv' ? 'canais' : x.p.fam === 'v' ? 'bandas' : 'largura';
         x.vizinhas.slice(0, 8).forEach(o => alternativas.push({ id: o.id, score: null, recusa: w + ' ' + o._correia.larg + (x.p.larg != null ? ' (pedido ' + x.p.larg + ')' : '') }));
@@ -996,7 +1036,7 @@
   const Motor = {
     deacc, up, comp, norm, tofrac, sizes, sideSpec, terminalRule, adapterRule, travas, threads, types, toks,
     Catalogo, Aprendizado, sugerir, medidasDescricaoOk, PADRAO, bitolaCliente,
-    conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule, parsePlana, correiaPlanaRule, agregarCortes
+    conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule, parsePlana, correiaPlanaRule, agregarCortes, parseLL
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = Motor;
   else root.Motor = Motor;

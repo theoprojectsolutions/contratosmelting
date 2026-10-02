@@ -16,3 +16,19 @@ for (const [mat, base, larg, cmp] of amostra) {
 }
 console.log('auto-teste', ok, '/', t); erros.forEach(e => console.log('  ', e));
 for (const d of process.argv.slice(2)) { const s = M.sugerir({ descricao: d }, { catalogo: cat }); console.log('\n' + d + '\n  =>', s.produto_id, s.produto_id ? cat.get(s.produto_id).d : '', '|', s.metodo, s.confianca, '|', s.motivo, '\n  alt:', (s.alternativas || []).map(a => (cat.get(a.id) || {}).d + ' [' + a.recusa + ']').join(' ; ')); }
+
+// Mectrol (LL): pedido "CORREIA SINCRONIZADA PU {comp} {perfil} {larg} ACO" -> material LL base (ou correia pronta igual no cadastro)
+{
+  const mec = M.agregarCortes(require('../dados/relpro_mec.json')).filter(r => M.parseLL(r[0]));
+  let t2 = 0, ok2 = 0, base2 = 0, pronta2 = 0; const err2 = [];
+  for (const [mat, base, , cmp] of mec) {
+    const ll = M.parseLL(mat); if (!cat.get(base)) continue; t2++;
+    const v = ll.variante; const c = Math.round(cmp);
+    const s = M.sugerir({ descricao: `CORREIA SINCRONIZADA POLIURETANO ${c} ${ll.perfil} ${ll.larg}` + (/ACO/.test(v) ? ' CABO ACO' : '') + (/KEVLAR/.test(v) ? ' CABO KEVLAR' : '') + (/NT/.test(v) ? ' NT' : '') + (/BRANC/.test(v) ? ' BRANCA' : '') + (/MELT/.test(v) ? ' MELTING' : '') }, { catalogo: cat });
+    const p = s.produto_id && cat.get(s.produto_id);
+    if (s.produto_id === base) { ok2++; base2++; }
+    else if (p && p._correia && p._correia.perfil.replace(/GT$/, '') === ll.perfil && p._correia.larg === ll.larg && p._correia.comp === Math.round(cmp)) { ok2++; pronta2++; }
+    else if (err2.length < 8) err2.push(`${mat} ${cmp} => ${s.metodo} ${p ? p.d : ''} | ${s.motivo}`);
+  }
+  console.log('Mectrol LL:', ok2, '/', t2, `(material LL ${base2}, correia pronta igual ${pronta2})`); err2.forEach(e => console.log('  ', e));
+}

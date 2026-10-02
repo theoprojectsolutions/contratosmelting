@@ -1211,9 +1211,10 @@ const Intel = (function(){
       colunas: [['ID', p => p.id, 'mono'], ['Apelido', p => p.a, 'mono'], ['Descrição', p => p.d], ['Origem', p => p.origem], ['Família', p => p.familia], ['UM', p => p.um], ['Situação', p => p.ativo ? 'Ativo' : 'Inativo']]
     },
     cortes: {
-      titulo: 'Cortes (correias planas)', total: () => (S.cortesLinhas || []).length,
+      titulo: 'Cortes (planas e Mectrol)', total: () => (S.cortesLinhas || []).length,
       linhas: () => (S.cortesLinhas || []).map(([material, base, larg, comp, vezes]) => ({ material, base, larg, comp, vezes })),
-      colunas: [['Material', r => r.material, 'mono'], ['ID base', r => r.base, 'mono'], ['Material base no cadastro', r => descId(r.base)], ['Largura (mm)', r => r.larg, 'num'], ['Comprimento (mm)', r => r.comp, 'num'], ['Vezes cortado', r => r.vezes, 'num']]
+      filtro: { nome: 'Nitta e Mectrol', valores: () => ['Plana (Nitta)', 'LL sincronizadora (Mectrol)'], campo: (r) => Motor.parseLL(r.material) ? 'LL sincronizadora (Mectrol)' : 'Plana (Nitta)' },
+      colunas: [['Tipo', r => Motor.parseLL(r.material) ? 'LL (Mectrol)' : 'Plana'], ['Material', r => r.material, 'mono'], ['ID base', r => r.base, 'mono'], ['Material base no cadastro', r => descId(r.base)], ['Largura (mm)', r => r.larg || (Motor.parseLL(r.material) || {}).larg || '', 'num'], ['Comprimento (mm)', r => r.comp, 'num'], ['Vezes cortado', r => r.vezes, 'num']]
     },
     depara: {
       titulo: 'De-para dos clientes', total: () => S.depara.length,
