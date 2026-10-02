@@ -9,6 +9,7 @@
 //   2. Histórico de vendas (mesmo código do cliente já vendido)
 //   3. REF / apelido idêntico ao cadastro
 //   4. Regras de terminal e adaptador hidráulico (monta o apelido SML)
+//   4c. Correias: perfil + comprimento + largura (sincronizadora, micro-V, V)
 //   4b. Sem REF: monta o REF pela descrição SAP (conexões de tubo Ermeto/DIN,
 //       conexões galvanizadas Tupy)
 //   5. Equivalente ao REF no cadastro (similaridade + travas)
@@ -344,6 +345,88 @@
   }
   function refSintetico(det) { return conexaoTubo(det) || conexaoGalvanizada(det); }
 
+  // ---------------- correias (sincronizadora, micro-V, em V / power band) ----------------
+  // Lê perfil + comprimento + largura (ou nº de canais) tanto da descrição do
+  // cliente quanto do cadastro, e casa pelo mesmo conjunto. Marca pedida tem
+  // preferência; sem a marca, sugere outra (conferir) e lista as demais.
+  const PERF_SINC = '(?:S?(?:2|3|5|8|14|20)M(?:GT[E2-5]?|R?PP\\d?|CXP)?|(?:[2358]|14)GTE?\\d?|8YU|AT?(?:3|5|10|20)|T(?:2\\.5|10|20|5|2)|MXL|XXH|XH|XL|H|L)';
+  const RX_SINC = new RegExp('(?:^|[^A-Z0-9])(TP|D)?\\s*-?\\s*(\\d{2,5})\\s*-?\\s*(' + PERF_SINC + ')(?:(?:\\s*-\\s*|\\s+)(\\d{1,3}(?:[.,]\\d{1,2})?))?(?![A-Z0-9])');
+  const RX_SINC_PF = new RegExp('(?:^|[^A-Z0-9])(TP|D)?\\s*(' + PERF_SINC + ')\\s*-\\s*(\\d{2,5})(?:\\s*-\\s*(\\d{1,3}))?(?![A-Z0-9])');
+  const RX_MV = [/(?:^|[^A-Z0-9])(\d{2,5})\s*-?\s*(PH|PJ|PK|PL|PM|J|K|L|M)\s*-?\s*(\d{1,2})?(?![A-Z0-9])/, /(?:^|[^A-Z0-9])(PH|PJ|PK|PL|PM)\s*-?\s*(\d{3,5})(?![A-Z0-9])/, /(?:^|[^A-Z0-9])(\d{1,2})\s*(PH|PJ|PK|PL|PM)\s*-?\s*(\d{3,5})(?![A-Z0-9])/];
+  const RX_V = /(?:^|[^A-Z0-9])(SPA|SPB|SPC|SPZ|XPA|XPB|XPC|XPZ|3VX|5VX|3V|5V|8V|AX|BX|CX|A|B|C|D|E)\s*-?\s*(\d{2,5})(?:\s*-\s*(\d{1,2}))?(?![A-Z0-9])/;
+  const MARCAS_CORREIA = [['GATES', /GATES|POWERGRIP|MECTROL|POLY ?CHAIN/], ['OPTIBELT', /OPTIBELT|\bOP\b|\bOPT\b/], ['CONTITECH', /CONTITECH|\bCONTI\b/], ['HUTCHINSON', /HUTCHINSON|\bHUT\b/], ['MELTING', /MELTING|MELTPOWER|BINLONG|\bM$/], ['BANDO', /BANDO/], ['MEGADYNE', /MEGADYNE|\bMEGA\b|\bMG$/], ['GOODYEAR', /GOODYEAR/], ['DAYCO', /DAYCO/], ['FENNER', /FENNER/], ['SINCRON', /SINCRON\b/], ['PERFLEX', /PERFLEX/]];
+  function marcaCorreia(s) { const u = up(s); for (const [n, rx] of MARCAS_CORREIA) if (rx.test(u)) return n; return null; }
+  const num = (x) => x == null ? null : Number(String(x).replace(',', '.'));
+  function parseCorreia(texto, ehCadastro) {
+    const t = up(texto).replace(/\s+/g, ' ');
+    if (!/CORREIA|SLAB|BELT/.test(t)) return null;
+    const twin = /TWIN|DUPLA SINC|DUPLO DENTE|DUPLA DENTADA|DOUBLE/.test(t);
+    const largTexto = () => { const w = t.match(/(?:^|[;,\s])(?:L|LARG(?:URA)?)\s*[.:]?\s*(\d{1,3}(?:[.,]\d)?)\s*(?:MM)?(?![\d])/) || t.match(/\bX\s*(\d{1,3})\s*MM\b/); return w ? num(w[1]) : null; };
+    const canais = () => { const w = t.match(/(\d{1,2})\s*(?:CANAIS|NERVURAS|RIBS|FRISOS|ESTRIAS)/) || t.match(/(?:CANAIS|NERVURAS|RIBS|FRISOS|ESTRIAS)\s*:?\s*(\d{1,2})/); return w ? +w[1] : null; };
+    // micro-V primeiro (PL/PK/PJ...) — só se o texto falar em micro-V / poly-V ou usar perfil P?
+    if (/MICRO ?-?V|POLY ?-?V|\bMV\b|RIB|\bP[HJKLM]\b|\d\s*P[HJKLM]\b|\bP[HJKLM]\s*-?\s*\d/.test(t)) {
+      let m = t.match(RX_MV[2]);
+      if (m) return { fam: 'mv', perfil: m[2], comp: +m[3], larg: +m[1] };
+      m = t.match(RX_MV[0]);
+      if (m && (/^P/.test(m[2]) || /\bMV\b|MICRO|POLY/.test(t))) return { fam: 'mv', perfil: m[2].replace(/^(?=[JKLM]$)/, 'P'), comp: +m[1], larg: m[3] ? +m[3] : (ehCadastro ? null : (canais() || largTexto())) };
+      m = t.match(RX_MV[1]);
+      if (m) return { fam: 'mv', perfil: m[1], comp: +m[2], larg: ehCadastro ? null : (canais() || largTexto()) };
+    }
+    // Polyflex (Gates): 3M / 5M / 7M / 11M — perfil em V, não sincronizadora
+    let pf = t.match(/POLYFLEX.*?\b(3|5|7|11)M\s*-?\s*(\d{3,5})(?:\s*-\s*(\d{1,2}))?/);
+    if (pf) { const b = t.match(/(\d{1,2})\s*BANDAS?|BANDAS?\s*:?\s*(\d{1,2})/); return { fam: 'v', perfil: 'PF' + pf[1] + 'M', comp: +pf[2], larg: pf[3] ? +pf[3] : (!ehCadastro && b ? +(b[1] || b[2]) : 1) }; }
+    // T / AT colados (Contitech): 100T510 = 100 T5 10, 370T1010 = 370 T10 10
+    pf = t.match(/(?:^|[^A-Z0-9])(\d{2,5})\s*(AT|T)(10|20|5|3|2)([1-9]\d{0,2})(?![A-Z0-9])/);
+    if (pf && !/EM V\b|POWER ?BAND/.test(t)) return { fam: 'sinc', tp: twin, perfil: pf[2] + pf[3], ger: null, comp: +pf[1], larg: +pf[4] };
+    if (!/EM V\b|POWER ?BAND|TRAPEZ/.test(t)) {
+      let m = t.match(RX_SINC), comp, perfil, larg, tp;
+      if (m) { tp = m[1]; comp = +m[2]; perfil = m[3]; larg = num(m[4]); }
+      else if ((m = t.match(RX_SINC_PF))) { tp = m[1]; perfil = m[2]; comp = +m[3]; larg = num(m[4]); }
+      if (m) {
+        const g = perfil.match(/^(.*GT)([2-5])$/);
+        if (larg == null && !ehCadastro) larg = largTexto();
+        return { fam: 'sinc', tp: !!tp || twin, perfil: g ? g[1] : perfil.replace(/^HTD/, ''), ger: g ? g[2] : null, comp, larg };
+      }
+    }
+    if (/EM V|\bV\b|POWER ?BAND|TRAPEZ|CUNHA|\b(SP[ABCZ]|XP[ABCZ]|[358]VX?|[ABC]X)\b|\b[A-E]\s*-?\s*\d{2,3}\b/.test(t)) {
+      const m = t.match(RX_V);
+      if (m) return { fam: 'v', perfil: m[1], comp: +m[2], larg: m[3] ? +m[3] : (/POWER ?BAND|BANDAS?/.test(t) ? ((t.match(/(\d{1,2})\s*BANDAS?|BANDAS?\s*:?\s*(\d{1,2})/) || []).slice(1).find(Boolean) || null) : 1) };
+    }
+    return null;
+  }
+  const chaveCorreia = (p) => [p.fam, p.tp ? 'TP' : '', p.perfil, p.comp, p.larg == null ? '' : p.larg].join('|');
+  Catalogo.prototype.indiceCorreias = function () {
+    if (this._correias) return this._correias;
+    const ix = new Map();
+    for (const o of this.lista) {
+      if (!/CORREIA|SLAB/.test(o.d + ' ' + up(o.familia))) continue;
+      const p = parseCorreia('CORREIA ' + o.d, true);
+      if (!p || p.larg == null) continue;
+      if (p.fam === 'sinc' && /\bTP\b|TWIN/.test(up(o.familia))) p.tp = true;
+      o._correia = p; o._marca = marcaCorreia(o.familia + ' ' + o.d + ' ' + o.a);
+      for (const k of [chaveCorreia(p), chaveCorreia(Object.assign({}, p, { larg: '*' }))]) {
+        if (!ix.has(k)) ix.set(k, []);
+        ix.get(k).push(o);
+      }
+    }
+    this._correias = ix;
+    return ix;
+  };
+  function correiaRule(det, cat) {
+    const p = parseCorreia(det, false);
+    if (!p) return null;
+    if (p.larg == null) return { p, cands: [], vizinhas: (cat.indiceCorreias().get(chaveCorreia(Object.assign({}, p, { larg: '*' }))) || []).slice() };
+    const cands = (cat.indiceCorreias().get(chaveCorreia(p)) || []).slice();
+    // sem a largura pedida: devolve as outras larguras do mesmo perfil/comprimento como alternativas
+    const vizinhas = () => (cat.indiceCorreias().get(chaveCorreia(Object.assign({}, p, { larg: '*' }))) || [])
+      .slice().sort((a, b) => Math.abs(a._correia.larg - p.larg) - Math.abs(b._correia.larg - p.larg));
+    if (!cands.length) return { p, cands, vizinhas: vizinhas() };
+    const marca = marcaCorreia(det.replace(/CORREIA\s+SINCRONIZAD\w*/g, ''));
+    const peso = (o) => (marca && o._marca === marca ? 4 : 0) + (p.ger && o._correia.ger === p.ger ? 2 : 0) + (!p.ger && !o._correia.ger ? 1 : 0) + (o._marca === 'MELTING' ? 0.5 : 0);
+    cands.sort((a, b) => peso(b) - peso(a));
+    return { p, cands, marca, mesmaMarca: !!marca && cands[0]._marca === marca };
+  }
+
   // ---------------- travas (arcfill2.strict) ----------------
   function toks(s) {
     s = comp(s).replace(/1\.1\//g, '11/');
@@ -644,6 +727,7 @@
     simAprendido: 0.9,     // nota mínima para padrão aprendido
     usarDescricao: false,  // sugerir só pela descrição (fraco em textos SAP longos — melhor usar a IA)
     regrasSap: true,       // sem REF: montar o REF pela descrição SAP (conexões de tubo, Tupy)
+    regrasCorreia: true,   // correias: casa perfil + comprimento + largura/canais
     travas: { material: true, rosca: true, tipo: true, medidas: true }
   };
 
@@ -716,6 +800,23 @@
         }
       }
     }
+    // 4c) correias: perfil + comprimento + largura/canais
+    if (P.regrasCorreia !== false && /CORREIA|SLAB|BELT/.test(det)) {
+      const x = correiaRule(det + (ref ? ' ' + up(ref) : ''), cat);
+      if (x && x.cands.length) {
+        const best = x.cands[0];
+        const alts = x.cands.slice(1, 6).map(o => ({ id: o.id, score: null, recusa: o._marca ? 'marca ' + o._marca : 'outra opção' }));
+        const desc = (x.p.tp ? 'TP ' : '') + x.p.comp + ' ' + x.p.perfil + (x.p.ger || '') + ' ' + x.p.larg;
+        const conf = (x.mesmaMarca || (!x.marca && x.cands.length === 1)) ? 'media' : 'baixa';
+        const motivo = 'Regra de correia (' + desc + ')' + (x.marca && !x.mesmaMarca ? ' — marca ' + x.marca + ' não encontrada, equivalente ' + (best._marca || 'sem marca') : '') + (!x.marca && x.cands.length > 1 ? ' — ' + x.cands.length + ' marcas no cadastro, conferir' : '');
+        return res(best.id, 'regra-correia', conf, motivo, null, { alternativas: alts });
+      }
+      if (x && x.vizinhas && x.vizinhas.length) {
+        const w = x.p.fam === 'mv' ? 'canais' : x.p.fam === 'v' ? 'bandas' : 'largura';
+        x.vizinhas.slice(0, 8).forEach(o => alternativas.push({ id: o.id, score: null, recusa: w + ' ' + o._correia.larg + (x.p.larg != null ? ' (pedido ' + x.p.larg + ')' : '') }));
+        return res(null, 'nenhum', 'sem_cadastro', 'Correia ' + (x.p.tp ? 'TP ' : '') + x.p.comp + ' ' + x.p.perfil + ' sem ' + w + ' ' + (x.p.larg == null ? 'informada' : x.p.larg) + ' no cadastro — ver alternativas', null, { alternativas: alternativas.slice(0, 8) });
+      }
+    }
     // 5) equivalente ao REF
     if (r && r.length >= 4 && !/^\d+$/.test(r)) {
       for (const c of cat.buscar(r, 12)) {
@@ -748,7 +849,7 @@
   const Motor = {
     deacc, up, comp, norm, tofrac, sizes, sideSpec, terminalRule, adapterRule, travas, threads, types, toks,
     Catalogo, Aprendizado, sugerir, medidasDescricaoOk, PADRAO, bitolaCliente,
-    conexaoTubo, conexaoGalvanizada, refSintetico
+    conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = Motor;
   else root.Motor = Motor;
