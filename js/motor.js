@@ -832,6 +832,10 @@
     const R = { uso: {}, usoR: {}, usoTer: {}, usoTerR: {}, co: {}, tot: {}, capa: {}, ftms: [] };
     const base = (s) => comp(String(s || '')).replace(/SML.*$/, '').replace(/INOX.*$/, '').replace(/(90|45)$/, '');
     const capas = {};
+    // exportação em .xlsx do SIG traz quantidades sem a vírgula (200 = 2,00): detecta e corrige
+    let cem = 0, tot = 0; for (const r of rows || []) { const q = Number(r.qtdter1); if (!q) continue; tot++; if (q >= 100 && q % 100 === 0) cem++; }
+    const escQ = tot && cem / tot > 0.5 ? 100 : 1;
+    if (escQ > 1) rows = rows.map(r => Object.assign({}, r, { qtdter1: Number(r.qtdter1) / 100, qtdter2: Number(r.qtdter2) / 100, qtdcapa: Number(r.qtdcapa) / 100 }));
     // FTMs recentes pesam mais (a Melting troca de marca/fornecedor com o tempo)
     let maxN = 1; for (const r of rows || []) { const n = Number(r.id || r.ftm); if (n > maxN) maxN = n; }
     for (const r of rows || []) {
