@@ -155,13 +155,27 @@ create table if not exists public.kits (
 create index if not exists kits_produto_idx on public.kits (produto_id);
 
 -- ---------------------------------------------------------------------
+-- 5d) EQUIVALÊNCIAS DE CORREIAS — código de outra marca (Habasit, Siegling,
+--     Chiorino, Leder, Burrell...) -> material Nitta. Tabela confidencial:
+--     fica só no banco (importada na tela Base de dados), nunca no repositório.
+-- ---------------------------------------------------------------------
+create table if not exists public.equivalencias (
+  marca         text not null default '',
+  codigo        text not null,
+  nitta         text not null,
+  obs           text,
+  atualizado_em timestamptz not null default now(),
+  primary key (marca, codigo, nitta)
+);
+
+-- ---------------------------------------------------------------------
 -- 6) SEGURANÇA — mesma regra do resto do sistema:
 --    leitura para qualquer usuário logado, escrita só para admin.
 -- ---------------------------------------------------------------------
 do $$
 declare t text;
 begin
-  foreach t in array array['produtos','vendas','contrato_itens','de_para','parametros','cortes','kits'] loop
+  foreach t in array array['produtos','vendas','contrato_itens','de_para','parametros','cortes','kits','equivalencias'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "Leitura liberada - %s" on public.%I', t, t);
     execute format('drop policy if exists "Inserir só admin - %s" on public.%I', t, t);

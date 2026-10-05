@@ -600,8 +600,13 @@
       m = t.match(/\*\s*(\d{1,4}(?:[.,]\d+)?)\s*(?:MM)?\s*X\s*(\d{2,6}(?:[.,]\d+)?)\s*(?:MM)?\s*\*/) || t.match(/(\d{1,6}(?:[.,]\d+)?)\s*(?:MM)?\s*X\s*(\d{1,6}(?:[.,]\d+)?)\s*MM/);
       if (m) { const a = num(m[1]), b = num(m[2]); larg = Math.min(a, b); cmp = Math.max(a, b); }
     }
+    // "500 X 3200" sem MM: só com marca/tipo de correia plana escrito
+    if ((larg == null || cmp == null) && /PLANA|TRANSPORTADORA|HABASIT|SIEGLING|CHIORINO|LEDER|BURRELL|AMMERAAL|FORBO|NITTA/.test(t)) {
+      m = t.match(/(?<![\d\/.,])(\d{2,4}(?:[.,]\d+)?)\s*X\s*(\d{3,6}(?:[.,]\d+)?)(?![\d\/])/);
+      if (m) { const a = num(m[1]), b = num(m[2]); larg = Math.min(a, b); cmp = Math.max(a, b); }
+    }
     if (larg == null || cmp == null) return null;
-    const plana = /PLANA|TRANSPORTADORA|TRANSMISSAO|TANGENCIAL|ESTEIRA|LENCOL|HABASIT|NITTA|SIEGLING|AMMERAAL|FORBO|MECTROL/.test(t);
+    const plana = /PLANA|TRANSPORTADORA|TRANSMISSAO|TANGENCIAL|ESTEIRA|LENCOL|HABASIT|NITTA|SIEGLING|CHIORINO|LEDER|BURRELL|AMMERAAL|FORBO|MECTROL/.test(t);
     if (!plana) return null;
     const ref = (t.match(/\bREF(?:ERENCIA)?\.?\s*(?:COMERCIAL)?\s*:?\s*([^;·,]+)/) || [])[1] || '';
     return {
@@ -609,6 +614,45 @@
       fechamento: /ABERTA|\bAB\b/.test(t) ? 'aberta' : (/FECHADA|SEM FIM|EMENDA|VULCANIZ|\bAF\b/.test(t) ? 'fechada' : null),
       acessorio: /FURO|FURAD|TALISCA|PERFURA|TACO|GUIA|PERFIL|REVEST|TRAVESS|LATERAL/.test(t)
     };
+  }
+  // tabela de equivalência de correias planas (Habasit / Siegling / Chiorino / Leder / Burrell -> Nitta)
+  // linhas: [{marca, codigo, nitta, obs}] (tabela equivalencias do banco; dado confidencial, fora do repositório)
+  Catalogo.prototype.definirEquivalencias = function (linhas) {
+    const E = new Map();
+    for (const r of linhas || []) {
+      const k = codPlana(r.codigo); if (!k || !r.nitta) continue;
+      if (!E.has(k)) E.set(k, []);
+      E.get(k).push({ marca: up(r.marca || ''), codigo: String(r.codigo).trim(), nitta: String(r.nitta).trim(), obs: String(r.obs || '').trim() });
+    }
+    // linha da tabela impressa antes da anotação à mão
+    for (const l of E.values()) l.sort((a, b) => (/^ANOTA/i.test(deacc(a.obs)) ? 1 : 0) - (/^ANOTA/i.test(deacc(b.obs)) ? 1 : 0));
+    this._equiv = E;
+  };
+  // procura no pedido um código de outra marca da tabela de equivalência (janela de até 7 palavras: "EM 8/2 0+05 PVC AS")
+  function equivalenciaPlana(det, cat) {
+    const E = cat._equiv; if (!E || !E.size) return null;
+    const t = up(det);
+    const tk = t.split(/[\s;,*:()]+/).filter(Boolean);
+    let best = null;
+    for (let i = 0; i < tk.length; i++) for (let w = Math.min(7, tk.length - i); w >= 1; w--) {
+      const k = codPlana(tk.slice(i, i + w).join('')); if (!k || /^\d+$/.test(k) || !E.has(k)) continue;
+      if (best && best.k.length >= k.length) continue;
+      let rows = E.get(k);
+      const comMarca = rows.filter(r => r.marca && r.marca.split('/').some(m => t.includes(m)));
+      if (comMarca.length) rows = comMarca;
+      else if (k.length <= 3 || !/[A-Z]/.test(k) || !/\d/.test(k)) continue;   // código curto ("F0", "T1") só com a marca escrita
+      else if (k.length <= 5 && rows.every(r => !r.marca)) continue;          // anotação sem marca e código curto: risco de confundir com perfil
+      best = { k, rows };
+    }
+    if (!best) return null;
+    const C = cat._cortes || { porCod: new Map() };
+    const opc = best.rows.map(r => { const c = codPlana(r.nitta); const cut = C.porCod.get(c); return { r, cod: c, base: cut ? cat.get(cut.base) : null }; });
+    return { k: best.k, opc, ok: opc.filter(o => o.base) };
+  }
+  function textoEquiv(e) {
+    const o = e.ok[0] || e.opc[0], t0 = e.opc[0];
+    return 'equivalente Nitta de ' + (o.r.marca ? o.r.marca + ' ' : '') + o.r.codigo + ': ' + o.r.nitta + (o.r.obs ? ' (' + o.r.obs + ')' : '') +
+      (t0 !== o ? ' — a tabela indica ' + t0.r.nitta + ', que a Melting nunca cortou' : '');
   }
   function correiaPlanaRule(det, cat) {
     const p = parsePlana(det); if (!p) return null;
@@ -622,12 +666,20 @@
       if (c.length >= 2 && /\d/.test(c) && C.porCod.has(c) && cat.get(C.porCod.get(c).base)) { cod = c; break; }
     }
     const medida = p.larg + 'x' + p.comp;
+    let equiv = null;
+    if (!cod) {
+      equiv = equivalenciaPlana(det, cat);
+      if (equiv && equiv.ok.length) {
+        const o = equiv.ok[0]; const pronta = cat.indicePlanas().get(o.cod + '|' + medida);
+        return { p, cod: o.cod, pronta, base: o.base, equiv };
+      }
+    }
     if (cod) {
       const pronta = cat.indicePlanas().get(cod + '|' + medida);
       return { p, cod, pronta, base: cat.get(C.porCod.get(cod).base) };
     }
     const mats = [...((C.porMedida.get(medida)) || new Map())].sort((a, b) => b[1] - a[1]).map(([id, n]) => ({ prod: cat.get(id), n })).filter(x => x.prod);
-    return { p, cod: null, mats };
+    return { p, cod: null, mats, equiv };
   }
 
 
@@ -1456,16 +1508,32 @@
     // 4d) correias planas (cortadas sob medida)
     if (P.regrasCorreia !== false && /CORREIA|ESTEIRA|LENCOL|BELT/.test(det)) {
       const x = correiaPlanaRule(det + (ref ? ' REF ' + up(ref) : ''), cat);
+      // código de outra marca -> equivalente Nitta (tabela de equivalência)
+      const txEq = textoEquiv;
+      const altEq = (e) => e.ok.slice(1, 4).map(o => ({ id: o.base.id, score: null, recusa: 'outra equivalência: ' + o.r.nitta }));
       if (x) {
         const med = x.p.larg + ' x ' + x.p.comp + ' mm' + (x.p.fechamento ? ' ' + x.p.fechamento : '');
+        if (x.equiv && x.cod) {
+          if (x.pronta && ok(x.pronta)) return res(x.pronta.id, 'regra-correia', 'baixa', 'Correia plana ' + x.cod + ' ' + med + ' já cadastrada — ' + txEq(x.equiv), null, { alternativas: [{ id: x.base.id, score: null, recusa: 'material base (cortar)' }].concat(altEq(x.equiv)) });
+          if (ok(x.base)) return res(x.base.id, 'regra-correia', 'baixa', 'Material ' + x.cod + ' — cortar ' + med + ' — ' + txEq(x.equiv) + (x.p.acessorio ? ' (pedido tem furo/talisca/acessório, conferir)' : ''), null, { alternativas: altEq(x.equiv) });
+        }
         if (x.cod && x.pronta && ok(x.pronta)) return res(x.pronta.id, 'regra-correia', 'media', 'Correia plana ' + x.cod + ' ' + med + ' já cadastrada', null, { alternativas: x.base ? [{ id: x.base.id, score: null, recusa: 'material base (cortar)' }] : [] });
         if (x.cod && x.base && ok(x.base)) return res(x.base.id, 'regra-correia', 'media', 'Material ' + x.cod + ' — cortar ' + med + (x.p.acessorio ? ' (pedido tem furo/talisca/acessório, conferir)' : ''));
+        if (x.equiv && !x.equiv.ok.length) return res(null, 'nenhum', 'sem_cadastro', 'Correia plana ' + med + ' — ' + txEq(x.equiv) + ' — material nunca cortado pela Melting, consultar a Nitta', null, { alternativas: (x.mats || []).slice(0, 6).map(m => ({ id: m.prod.id, score: null, recusa: 'já cortado ' + m.n + 'x em ' + x.p.larg + 'x' + x.p.comp })) });
         if (!x.cod && x.mats.length) {
           x.mats.slice(0, 8).forEach(m => alternativas.push({ id: m.prod.id, score: null, recusa: 'já cortado ' + m.n + 'x em ' + x.p.larg + 'x' + x.p.comp }));
           return res(null, 'nenhum', 'sem_cadastro', x.p.acessorio
             ? 'Correia plana ' + med + ' com furo/talisca/acessório — não usar similar sem conferir'
             : 'Correia plana de outra marca ' + med + ': ' + x.mats.length + ' material(is) Nitta/Mectrol já cortado(s) nessa medida — escolher', null, { alternativas: alternativas.slice(0, 8) });
         }
+      }
+    }
+    if (P.regrasCorreia !== false && /CORREIA|ESTEIRA|LENCOL|BELT|HABASIT|SIEGLING|CHIORINO|AMMERAAL|FORBO/.test(det) && !parsePlana(det + (ref ? ' ' + up(ref) : '')) && !parseCorreia(det + (ref ? ' ' + up(ref) : ''))) {
+      const e = equivalenciaPlana(det + (ref ? ' ' + up(ref) : ''), cat);
+      if (e) {
+        const tx = textoEquiv(e);
+        if (e.ok.length && ok(e.ok[0].base)) return res(e.ok[0].base.id, 'regra-correia', 'baixa', 'Material ' + e.ok[0].cod + ' — ' + tx + ' — medida (largura × comprimento) não informada', null, { alternativas: e.ok.slice(1, 4).map(z => ({ id: z.base.id, score: null, recusa: 'outra equivalência: ' + z.r.nitta })) });
+        return res(null, 'nenhum', 'sem_cadastro', 'Correia plana — ' + tx + ' — material nunca cortado pela Melting, consultar a Nitta');
       }
     }
     // 4c) correias: perfil + comprimento + largura/canais
@@ -1572,7 +1640,7 @@
   const Motor = {
     deacc, up, comp, norm, tofrac, sizes, sideSpec, terminalRule, adapterRule, travas, threads, types, toks,
     Catalogo, Aprendizado, sugerir, medidasDescricaoOk, PADRAO, bitolaCliente,
-    conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule, parsePlana, correiaPlanaRule, agregarCortes, parseLL, agregarKits, agregarFtm, mangueiraRule, mangueiraLivre
+    conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule, parsePlana, correiaPlanaRule, agregarCortes, parseLL, agregarKits, agregarFtm, mangueiraRule, mangueiraLivre, equivalenciaPlana
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = Motor;
   else root.Motor = Motor;

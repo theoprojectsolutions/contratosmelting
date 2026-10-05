@@ -90,6 +90,7 @@ const Intel = (function(){
       S.cortesInfo = reg.cortes || null;
       S.kitsInfo = reg.kits || null;
       S.ftmInfo = reg.ftm || null;
+      S.equivInfo = reg.equivalencias || null;
       try { localStorage.setItem(PARAMS_STORAGE_KEY, JSON.stringify(PARAMS)); } catch (e){}
       HOJE = dataReferencia();
     } catch (e){ console.warn('[Parâmetros]', e.message || e); }
@@ -140,6 +141,7 @@ const Intel = (function(){
     await anexarCortes(S.catalogo);
     await anexarKits(S.catalogo);
     await anexarFtm(S.catalogo);
+    await anexarEquivalencias(S.catalogo);
     return S.catalogo;
   }
   // histórico de FTMs (mangueiras montadas): resumo no arquivo do motor -> cache
@@ -157,6 +159,20 @@ const Intel = (function(){
       if (!R && cache && cache.resumo) R = cache.resumo;
       if (R){ cat.definirFtm(R); S.ftmTotal = (R.ftms || []).length; }
     } catch (e){ console.warn('[FTM]', e.message || e); }
+  }
+  // equivalências de correias (outra marca -> Nitta): tabela -> cache
+  async function anexarEquivalencias(cat){
+    try {
+      const cache = await IDB.get('equivalencias');
+      const versao = S.equivInfo && S.equivInfo.versao;
+      let linhas = (cache && cache.linhas && (!DB_ATIVO || !versao || cache.versao === versao)) ? cache.linhas : null;
+      if (!linhas && DB_ATIVO && versao){
+        linhas = await selectAll('equivalencias', null, 'marca,codigo,nitta,obs');
+        if (linhas && linhas.length) await IDB.set('equivalencias', { versao, linhas });
+      }
+      if (!linhas && cache && cache.linhas) linhas = cache.linhas;
+      if (linhas && linhas.length){ cat.definirEquivalencias(linhas); S.equivLinhas = linhas; }
+    } catch (e){ console.warn('[Equivalências]', e.message || e); }
   }
   // kits SGM: arquivo do motor -> tabela -> cache
   async function anexarKits(cat){
@@ -1125,6 +1141,39 @@ const Intel = (function(){
     } catch (e){ console.error(e); st.textContent = 'Erro: ' + (e.message || e); }
   }
 
+  // equivalências de correias: planilha com MARCA, CODIGO, NITTA, OBS (substitui a tabela inteira)
+  async function importarEquivalencias(files){
+    const st = $('base-eqv-status'); const bar = $('base-eqv-bar');
+    try {
+      const rows = [];
+      for (const f of files){
+        st.textContent = 'Lendo ' + f.name + '...'; await espera();
+        lerPlanilhaComoObjetos(await f.arrayBuffer()).forEach(o => {
+          const codigo = String(pega(o, ['codigo', 'Código', 'CODIGO']) || '').trim(), nitta = String(pega(o, ['nitta', 'NITTA', 'Nitta']) || '').trim();
+          if (codigo && nitta && !/^N\/?A$/i.test(nitta)) rows.push({ marca: String(pega(o, ['marca', 'MARCA', 'Marca']) || '').trim().toUpperCase(), codigo, nitta, obs: String(pega(o, ['obs', 'OBS', 'Observação', 'observacao']) || '').trim() });
+        });
+      }
+      const vistos = new Set(); const linhas = rows.filter(r => { const k = r.marca + '|' + r.codigo + '|' + r.nitta; if (vistos.has(k)) return false; vistos.add(k); return true; });
+      if (!linhas.length){ st.textContent = 'Nenhuma equivalência encontrada — a planilha precisa das colunas MARCA, CODIGO, NITTA e OBS.'; return; }
+      const versao = new Date().toISOString();
+      if (DB_ATIVO){
+        { const { error } = await supabaseClient.from('equivalencias').delete().neq('codigo', ''); if (error) throw error; }
+        await emLotes(linhas.map(r => Object.assign({ atualizado_em: versao }, r)), 500, async (l) => {
+          const { error } = await supabaseClient.from('equivalencias').upsert(l, { onConflict: 'marca,codigo,nitta' }); if (error) throw error;
+        }, (a, b) => { bar.style.width = (a / b * 90) + '%'; st.textContent = `Gravando equivalências: ${a} de ${b}...`; });
+        await salvarParametro('equivalencias', { versao, total: linhas.length });
+        S.equivInfo = { versao, total: linhas.length };
+      }
+      await IDB.set('equivalencias', { versao, linhas });
+      if (S.catalogo) S.catalogo.definirEquivalencias(linhas);
+      S.equivLinhas = linhas;
+      bar.style.width = '100%';
+      st.textContent = `${linhas.length.toLocaleString('pt-BR')} equivalências importadas${DB_ATIVO ? ' e gravadas no banco' : ' (só neste navegador)'}.`;
+      atualizarStatusBase();
+      showToast('Equivalências de correias importadas');
+    } catch (e){ console.error(e); st.textContent = 'Erro: ' + (e.message || e); }
+  }
+
   // kits SGM: relpro_sgm (produtos montados: peça principal + componentes + mão de obra)
   async function importarKits(files){
     const st = $('base-kit-status'); const bar = $('base-kit-bar');
@@ -1259,6 +1308,7 @@ const Intel = (function(){
       { l: 'De-para (memória do motor)', v: S.depara.length.toLocaleString('pt-BR'), s: clientesDp.size + ' cliente(s)' },
       { l: 'Mangueiras montadas (FTM)', v: (S.ftmTotal || (S.ftmInfo && S.ftmInfo.total) || 0).toLocaleString('pt-BR'), s: S.ftmTotal ? 'histórico de montagens (relpro_ftm)' : 'importe o relpro_ftm abaixo' },
       { l: 'Kits SGM', v: ((S.kitsLinhas || []).length || (S.kitsInfo && S.kitsInfo.total) || 0).toLocaleString('pt-BR'), s: (S.kitsLinhas || []).length ? 'produtos montados (relpro_sgm)' : 'importe o relpro_sgm abaixo' },
+      { l: 'Equivalências de correias', v: ((S.equivLinhas || []).length || (S.equivInfo && S.equivInfo.total) || 0).toLocaleString('pt-BR'), s: (S.equivLinhas || []).length ? 'outra marca → Nitta' : 'importe a planilha de equivalências abaixo' },
       { l: 'Cortes de correia plana', v: (S.cortesTotal || (S.cortesInfo && S.cortesInfo.total) || 0).toLocaleString('pt-BR'), s: S.cortesTotal ? 'material × medida (relpro_nita / relpro_mec)' : 'importe o relpro_nita / relpro_mec abaixo' },
       { l: 'Itens de contrato', v: S.itens.length.toLocaleString('pt-BR'), s: new Set(S.itens.map(i => i.contrato_id)).size + ' contrato(s) com itens' }
     ].map(k => `<div class="kpi k-blue"><div class="label">${k.l}</div><div class="value">${k.v}</div><div class="sub">${k.s}</div></div>`).join('');
@@ -1276,6 +1326,7 @@ const Intel = (function(){
     liga('base-ven-file', 'base-ven-dz', importarVendas);
     liga('base-cor-file', 'base-cor-dz', importarCortes);
     liga('base-kit-file', 'base-kit-dz', importarKits);
+    liga('base-eqv-file', 'base-eqv-dz', importarEquivalencias);
     liga('base-ftm-file', 'base-ftm-dz', importarFtm);
     liga('ens-file', 'ens-dz', (fs) => lerEnsino(fs[0]).catch(e => showToast('Erro: ' + e.message)));
     const ea = $('ens-aba'); if (ea) ea.addEventListener('change', e => selecionarAbaEnsino(e.target.value));
@@ -1374,6 +1425,12 @@ const Intel = (function(){
       titulo: 'Kits SGM', total: () => (S.kitsLinhas || []).length,
       linhas: () => (S.kitsLinhas || []).map(([sgm, id, desc, comps, um]) => ({ sgm, id, desc, comps: comps || [], um })),
       colunas: [['SGM', k => k.sgm, 'mono'], ['ID', k => k.id, 'mono'], ['Descrição', k => k.desc], ['Componentes', k => k.comps.map(c => (c[2] && c[2] !== 1 ? c[2] + '× ' : '') + (c[1] || c[0]) + ' [' + c[0] + ']').join(' + ')], ['UN', k => k.um]]
+    },
+    equivalencias: {
+      titulo: 'Equivalências (→ Nitta)', total: () => (S.equivLinhas || []).length,
+      linhas: () => S.equivLinhas || [],
+      filtro: { nome: 'Todas as marcas', valores: () => [...new Set((S.equivLinhas || []).map(r => r.marca || '(anotação sem marca)'))].sort(), campo: (r) => r.marca || '(anotação sem marca)' },
+      colunas: [['Marca', r => r.marca], ['Código', r => r.codigo, 'mono'], ['Nitta', r => r.nitta, 'mono'], ['Já cortado pela Melting', r => { const C = S.catalogo && S.catalogo._cortes; const b = C && C.porCod.get(Motor.comp(r.nitta).replace(/\//g, '')); return b ? descId(b.base) || b.base : ''; }], ['Observação / diferenças', r => r.obs]]
     },
     depara: {
       titulo: 'De-para dos clientes', total: () => S.depara.length,
