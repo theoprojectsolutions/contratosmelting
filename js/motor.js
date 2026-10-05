@@ -389,7 +389,7 @@
   const RX_SINC = new RegExp('(?:^|[^A-Z0-9])(TP|D)?\\s*-?\\s*(\\d{2,5})\\s*-?\\s*(' + PERF_SINC + ')(?:(?:\\s*-\\s*|\\s+)(\\d{1,3}(?:[.,]\\d{1,2})?))?(?![A-Z0-9])');
   const RX_SINC_PF = new RegExp('(?:^|[^A-Z0-9])(TP|D)?\\s*(' + PERF_SINC + ')\\s*-\\s*(\\d{2,5})(?:\\s*-\\s*(\\d{1,3}))?(?![A-Z0-9])');
   const RX_MV = [/(?:^|[^A-Z0-9])(\d{2,5})\s*-?\s*(PH|PJ|PK|PL|PM|J|K|L|M)\s*-?\s*(\d{1,2})?(?![A-Z0-9])/, /(?:^|[^A-Z0-9])(PH|PJ|PK|PL|PM)\s*-?\s*(\d{3,5})(?![A-Z0-9])/, /(?:^|[^A-Z0-9])(\d{1,2})\s*(PH|PJ|PK|PL|PM)\s*-?\s*(\d{3,5})(?![A-Z0-9])/];
-  const RX_V = /(?:^|[^A-Z0-9])(SPA|SPB|SPC|SPZ|XPA|XPB|XPC|XPZ|3VX|5VX|3V|5V|8V|AX|BX|CX|A|B|C|D|E)\s*-?\s*(\d{2,5})(?:\s*-\s*(\d{1,2}))?(?![A-Z0-9])/;
+  const RX_V = /(?:^|[^A-Z0-9])(SPA|SPB|SPC|SPZ|XPA|XPB|XPC|XPZ|3VX|5VX|3V|5V|8V|AXS|BXS|CXS|AX|BX|CX|A|B|C|D|E)\s*-?\s*(\d{2,5})(?:\s*-\s*(\d{1,2}))?(?![A-Z0-9])/;
   const MARCAS_CORREIA = [['GATES', /GATES|POWERGRIP|MECTROL|POLY ?CHAIN/], ['OPTIBELT', /OPTIBELT|\bOP\b|\bOPT\b/], ['CONTITECH', /CONTITECH|\bCONTI\b/], ['HUTCHINSON', /HUTCHINSON|\bHUT\b/], ['MELTING', /MELTING|MELTPOWER|BINLONG|\bM$/], ['BANDO', /BANDO/], ['MEGADYNE', /MEGADYNE|\bMEGA\b|\bMG$/], ['GOODYEAR', /GOODYEAR/], ['DAYCO', /DAYCO/], ['FENNER', /FENNER/], ['SINCRON', /SINCRON\b/], ['PERFLEX', /PERFLEX/]];
   function marcaCorreia(s) { const u = up(s); for (const [n, rx] of MARCAS_CORREIA) if (rx.test(u)) return n; return null; }
   const num = (x) => x == null ? null : Number(String(x).replace(',', '.'));
@@ -438,7 +438,7 @@
         return { fam: 'sinc', tp: !!tp || twin, perfil: g ? g[1] : perfil.replace(/^HTD/, ''), ger: g ? g[2] : null, comp, larg };
       }
     }
-    if (/EM V|\bV\b|POWER ?BAND|TRAPEZ|CUNHA|\b(SP[ABCZ]|XP[ABCZ]|[358]VX?|[ABC]X)\b|\b[A-E]\s*-?\s*\d{2,3}\b/.test(t)) {
+    if (/EM V|\bV\b|POWER ?BAND|TRAPEZ|CUNHA|\b(SP[ABCZ]|XP[ABCZ]|[358]VX?|[ABC]XS?)\b|\b[A-E]\s*-?\s*\d{2,3}\b/.test(t)) {
       const m = t.match(RX_V);
       if (m) return { fam: 'v', perfil: m[1], comp: +m[2], larg: m[3] ? +m[3] : (/POWER ?BAND|BANDAS?/.test(t) ? ((t.match(/(\d{1,2})\s*BANDAS?|BANDAS?\s*:?\s*(\d{1,2})/) || []).slice(1).find(Boolean) || null) : 1) };
     }
@@ -953,7 +953,7 @@
   }
   // um terminal descrito pelo cliente -> {T, td, ang}
   function terminalCliente(seg, dash) {
-    let s = seg.replace(/\bFEM\b\.?/g, 'FEMEA').replace(/GIRAT\w*|\bGIR\b\.?/g, 'GIRAT').replace(/DKO\s?([LS])\s*-?\s*(\d{1,2})\b/g, (m, a, b) => 'DKO' + b.padStart(2, '0') + a)
+    let s = seg.replace(/\bDK\s+O\b/g, 'DKO').replace(/DKO\s*(\d{1,2})\s*-?\s*([LS])\b/g, 'DKO$2$1').replace(/\bFG\b/g, 'FEMEA GIRAT').replace(/\bFEM\b\.?/g, 'FEMEA').replace(/GIRAT\w*|\bGIR\b\.?/g, 'GIRAT').replace(/DKO\s?([LS])\s*-?\s*(\d{1,2})\b/g, (m, a, b) => 'DKO' + b.padStart(2, '0') + a)
       .replace(/TUBO\s?(\d{1,2})\s?([LS])\b/g, (m, a, b) => 'DKO' + a.padStart(2, '0') + b).replace(/37\s?(?:°|º|GR\w*)/g, 'JIC').replace(/24\s?(?:°|º|GR\w*)/g, '24GR');
     let ang = '';
     const a = s.match(/(?<![\d\/,.X])(90|45)\s*(?:°|º|GR\w*|G\b)?(?![\d\/,])/);
@@ -1074,6 +1074,73 @@
       if (!ftm && l.length) ftm = ['~' + l[0][0], l[0][1]];
     }
     return { dash, fam, porNorma, mang, altsM, ters, comprimento, capa, ftm, pend, avulsa: !ters.length, livre: true };
+  }
+
+  // ---------------- conexões pneumáticas (padrão Melting EC/EL/ET/EUC/EUL/EUT) ----------------
+  // Festo QS-G1/4-6 -> EC6PT1/4TR; QSL(V)-G1/4-6 -> EL6PT1/4TR; QST-8 -> EUT8TR; QS-16 -> EUC16TR; QSL-8 -> EUL8TR;
+  // ou por extenso: "CONEXAO RAPIDA RETA 6MM X 1/4", "CONEXAO PNEUMATICA L 8MM ROSCA 1/8"
+  function pneumaticaRule(det, cat) {
+    const t = up(det).replace(/\s+/g, ' ');
+    let tipo = null, tubo = null, rosca = null, porCodigo = false;
+    const f = t.match(/\b(T?QS)(LV|L|T|Y)?(?:-|\s)(?:G|R)?(\d\/\d{1,2}|M\d)?-?(\d{1,2})?(?:-I|-H)?\b/);
+    if (f && (f[3] || f[4])) {
+      porCodigo = true; rosca = f[3] || null; tubo = f[4] ? +f[4] : (!f[3] ? null : null);
+      if (!tubo && f[3] && /^\d{1,2}$/.test(f[3])) { tubo = +f[3]; rosca = null; }
+      const k = (f[1] === 'TQS' ? 'T' : '') + (f[2] || '');
+      tipo = /T/.test(k) ? (rosca ? 'ET' : 'EUT') : /L/.test(k) ? (rosca ? 'EL' : 'EUL') : (rosca ? 'EC' : 'EUC');
+    } else if (/CONEX\w*\s+(RAPIDA|PNEUMATICA|RAP\b)|ENGATE RAPIDO PARA TUBO|CONEXAO INSTANTANEA/.test(t)) {
+      const m = t.match(/(?:TUBO|P\/\s*TUBO|PARA TUBO|D\.?\s*E\.?)?\s*(\d{1,2})\s*MM/); if (m) tubo = +m[1];
+      const r = t.match(/(?:ROSCA|G|R|BSP\w*|NPT\w*)\s*(\d\/\d{1,2})|(\d\/\d{1,2})\s*(?:"|POL|BSP|NPT)/); if (r) rosca = r[1] || r[2];
+      const L = /\bL\b|COTOVELO|CURVA|JOELHO|90/.test(t), T = /\bT\b|\bTE\b|TEE/.test(t), U = /UNIAO|TUBO\s*\/\s*TUBO|TUBO-TUBO/.test(t);
+      tipo = T ? (rosca ? 'ET' : 'EUT') : L ? (rosca ? 'EL' : 'EUL') : (rosca && !U ? 'EC' : 'EUC');
+    }
+    if (!tipo || !tubo || tubo > 16) return null;
+    const base = tipo + tubo + (rosca ? 'PT' + rosca : '');
+    const inox = /INOX|AISI|316|304/.test(t);
+    const exato = cat.lookupApelido(base + 'TR' + (inox ? 'INOX' : ''));
+    if (exato && cat.get(exato) && cat.get(exato).ativo) return { prod: cat.get(exato), base, porCodigo };
+    const c = cat.lista.filter(o => o.ativo && o.a.startsWith(base) && !/^\d/.test(o.a.slice(base.length)) && !/VALVULA|ALTAPRESSAO/.test(o.a) && /INOX/.test(o.a) === inox).sort((a, b) => a.a.length - b.a.length);
+    return c.length ? { prod: c[0], base, porCodigo, outras: c.slice(1, 4) } : { prod: null, base, porCodigo };
+  }
+
+  // ---------------- código do fabricante citado na descrição (20PM, 400SF, FFH04, 837BM...) ----------------
+  const COD_RUIM = /^(\d+(MM|CM|M|MT|MTS|KG|G|V|VCA|VCC|W|KW|BAR|PSI|LBS|L|ML|PCS?|UN|HP|RPM|NM|A|MA)|M\d+(X[\d.,]+)?|\d+X\d*|[A-Z]\d|\d[A-Z]|LIB\d*|NR\d+|NBR\d+|DIN\d+|ISO\d+|SAE\d+\w*|ASTM\w*|AISI\d+|R\d{1,2}(AT)?|\d{1,2}SN|\d+(LBS|BAR)\w*|CF8M?|PN\d+|DN\d+|PG\d+|FIG\d+|IP\d+|CL\d+|CLASSE\d+|SCH\d+|N\d+|\d+TH|\d+[A-Z]?\/\d+.*|\d*R\d+[A-Z]*|\d+GR(AUS)?|A\d{3}[A-Z]*|AISI\w*|J\d{3,4}|\d+POL|\d*(BSP|NPT|UNF|JIC|ORFS|BSPP|BSPT|NPTF)\w*|\d+FPP|\d+FIOS|\d+(TRAMAS?|ESPIRAIS?)|SGM\d+|FTM\d+|\d+[LS]|\d+(MPA|KPA|LB|KGF|MCA|TON|GB|MB|TB|MAH|LM|CV)|\d+X\d+\w*)$/;
+  function codigosFab(texto) {
+    const t = up(texto).replace(/(\d)\s+(PM|SF|SH|PH|PF|SM)\b/g, '$1$2');
+    const out = new Set();
+    for (const w of t.split(/[\s;,:()"'*=]+/)) {
+      const x = w.replace(/^[.\-]+|[.\-]+$/g, '').replace(/[.\-]/g, '');
+      if (x.length < 4 || x.length > 14 || !/[A-Z]/.test(x) || !/\d/.test(x) || /\//.test(x) || COD_RUIM.test(x)) continue;
+      out.add(x);
+    }
+    return out;
+  }
+  Catalogo.prototype.indiceCodigos = function () {
+    if (this._codFab) return this._codFab;
+    const ix = new Map();
+    const df = new Map();
+    for (const o of this.lista) {
+      if (/^(SGM|FTM)/.test(o.a) || /\bSGM\b|^FTM/.test(o.d)) continue;     // kits/montagens citam códigos dos componentes
+      for (const c of codigosFab(o.d)) { if (!ix.has(c)) ix.set(c, []); ix.get(c).push(o); }
+      for (const w of new Set(o.d.split(/[^A-Z]+/))) if (w.length >= 4) df.set(w, (df.get(w) || 0) + 1);
+    }
+    for (const [k, l] of ix) if (l.length > 25) ix.delete(k);       // código genérico demais
+    this._codFab = ix; this._dfPalavra = df; return ix;
+  };
+  function codigoFabricanteRule(det, cat) {
+    const ix = cat.indiceCodigos(); const cs = [...codigosFab(det)].filter(c => ix.has(c));
+    if (!cs.length) return null;
+    const sc = new Map();
+    for (const c of cs) for (const o of ix.get(c)) sc.set(o, (sc.get(o) || 0) + 1);
+    const fd = fracs(det);
+    // além do código, uma palavra pouco comum em comum (marca, tipo de peça: NITTO, ENGATE, SILENCIADOR...)
+    const df = cat._dfPalavra; const pal = new Set(up(det).split(/[^A-Z]+/).filter(w => w.length >= 4 && (df.get(w) || 0) < 1500));
+    const ok = [...sc].filter(([o]) => { const fc = fracs(o.d + ' ' + o.a); for (const f of fc) if (!fd.has(f)) return false;
+      if (![...new Set(o.d.split(/[^A-Z]+/))].some(w => pal.has(w))) return false;
+      return !travas(o, null, det, { tipo: false }); })
+      .sort((a, b) => b[1] - a[1] || a[0].a.length - b[0].a.length);
+    if (!ok.length) return null;
+    return { prod: ok[0][0], cods: cs.filter(c => ix.get(c).includes(ok[0][0])), outras: ok.slice(1, 4).map(x => x[0]) };
   }
 
   // ---------------- travas (arcfill2.strict) ----------------
@@ -1585,6 +1652,11 @@
         return res(null, 'nenhum', 'sem_cadastro', 'Correia ' + (x.p.tp ? 'TP ' : '') + x.p.comp + ' ' + x.p.perfil + ' sem ' + w + ' ' + (x.p.larg == null ? 'informada' : x.p.larg) + ' no cadastro — ver alternativas', null, { alternativas: alternativas.slice(0, 8) });
       }
     }
+    // 4f) conexão pneumática (Festo QS / por extenso) -> padrão Melting
+    {
+      const x = pneumaticaRule(det + ' ' + (ref || ''), cat);
+      if (x && x.prod && ok(x.prod)) return res(x.prod.id, 'regra-pneumatica', x.porCodigo ? 'media' : 'baixa', 'Conexão pneumática ' + x.base + (x.porCodigo ? ' (código Festo/Camozzi no pedido)' : ' pela descrição') + ' — conferir', null, { alternativas: (x.outras || []).map(o => ({ id: o.id, score: null, recusa: 'variante' })) });
+    }
     // 5) equivalente ao REF
     if (r && r.length >= 4 && !/^\d+$/.test(r)) {
       for (const c of cat.buscar(r, 12)) {
@@ -1624,6 +1696,11 @@
         }
       }
     }
+    // 6c) código do fabricante escrito na descrição e no cadastro (20PM, 400SF, FFH04...)
+    if (P.codigoFabricante !== false) {
+      const x = (det.match(/;/g) || []).length < 2 ? codigoFabricanteRule(det + ' ' + (ref || ''), cat) : null;
+      if (x && ok(x.prod)) return res(x.prod.id, 'codigo-fabricante', 'baixa', 'Código do fabricante ' + x.cods.join(', ') + ' igual ao do cadastro — conferir', null, { alternativas: x.outras.map(o => ({ id: o.id, score: null, recusa: 'mesmo código' })).concat(alternativas).slice(0, 5) });
+    }
     // 7) descrição
     const cands = cat.buscar(det.split(/REFER[EÊ]NCIA COMERCIAL|F\/R|NOTA:/)[0] + ' ' + ref, 15);
     if (P.usarDescricao) {
@@ -1640,7 +1717,7 @@
   const Motor = {
     deacc, up, comp, norm, tofrac, sizes, sideSpec, terminalRule, adapterRule, travas, threads, types, toks,
     Catalogo, Aprendizado, sugerir, medidasDescricaoOk, PADRAO, bitolaCliente,
-    conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule, parsePlana, correiaPlanaRule, agregarCortes, parseLL, agregarKits, agregarFtm, mangueiraRule, mangueiraLivre, equivalenciaPlana
+    conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule, parsePlana, correiaPlanaRule, agregarCortes, parseLL, agregarKits, agregarFtm, mangueiraRule, mangueiraLivre, equivalenciaPlana, pneumaticaRule, codigoFabricanteRule, codigosFab
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = Motor;
   else root.Motor = Motor;
