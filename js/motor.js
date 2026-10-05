@@ -488,7 +488,7 @@
     if (!ctx || !(ctx.depara || ctx.historico)) return null;
     if (!ctx._prefMarcaCorreia) {
       cat.indiceCorreias(); const n = {};
-      const ids = [...(ctx.depara ? ctx.depara.values() : []), ...(ctx.historico ? [...ctx.historico.values()].map(h => h.id) : [])];
+      const ids = [...(ctx.depara ? ctx.depara.values() : []), ...(ctx.historico ? [...ctx.historico.values()].filter(h => !h.geral).map(h => h.id) : [])];
       ctx._linhaCorreia = new Map();      // família do cadastro (ex. CORREIA GATES INDL B VULCOPOWER) -> vezes
       for (const id of ids) {
         const o = cat.get(id); if (!o || !o._correia) continue; const mk = o._marca || 'SEM MARCA';
@@ -901,7 +901,7 @@
     if (!ctx) return null;
     if (ctx._prefMarcaMang !== undefined) return ctx._prefMarcaMang;
     const n = {};
-    const ids = [...(ctx.depara ? ctx.depara.values() : []), ...(ctx.historico ? [...ctx.historico.values()].map(h => h.id) : [])];
+    const ids = [...(ctx.depara ? ctx.depara.values() : []), ...(ctx.historico ? [...ctx.historico.values()].filter(h => !h.geral).map(h => h.id) : [])];
     for (const id of ids) { const p = cat.get(id); if (!p || !/MANG/.test(p.d)) continue; const mk = marcaMang(p.a); if (mk) n[mk] = (n[mk] || 0) + 1; }
     const best = Object.entries(n).sort((a, b) => b[1] - a[1])[0];
     ctx._prefMarcaMang = best && best[1] >= 2 ? best[0] : null;

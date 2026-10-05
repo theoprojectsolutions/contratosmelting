@@ -568,13 +568,13 @@ const Intel = (function(){
     const falta = [...new Set(ids.filter(Boolean).map(String))].filter(id => !S.precos.has(id));
     if (!falta.length) return;
     if (!DB_ATIVO){
-      for (const v of S.vendas){ const id = String(v.produto_id); if (!falta.includes(id)) continue; const a = S.precos.get(id); if (!a || String(v.data) > String(a.data)) S.precos.set(id, { preco: Number(v.preco_unit), data: v.data }); }
+      for (const v of S.vendas){ const id = String(v.produto_id); if (!falta.includes(id) || !(Number(v.preco_unit) > 0)) continue; const a = S.precos.get(id); if (!a || String(v.data) > String(a.data)) S.precos.set(id, { preco: Number(v.preco_unit), data: v.data }); }
       return;
     }
     for (let i = 0; i < falta.length; i += 100){
       const parte = falta.slice(i, i + 100);
       try {
-        const rows = await selectAll('vendas', q => q.in('produto_id', parte).order('data', { ascending: false }), 'produto_id,preco_unit,data');
+        const rows = await selectAll('vendas', q => q.in('produto_id', parte).gt('preco_unit', 0).order('data', { ascending: false }), 'produto_id,preco_unit,data');
         for (const v of rows){ const id = String(v.produto_id); if (!S.precos.has(id)) S.precos.set(id, { preco: Number(v.preco_unit), data: v.data }); }
       } catch (e){ console.warn('[Preços]', e.message || e); }
       parte.forEach(id => { if (!S.precos.has(id)) S.precos.set(id, null); });
@@ -595,7 +595,7 @@ const Intel = (function(){
     if (!produtoId) return null;
     let best = null, bestCli = null;
     for (const v of S.vendas){
-      if (String(v.produto_id) !== String(produtoId)) continue;
+      if (String(v.produto_id) !== String(produtoId) || !(Number(v.preco_unit) > 0)) continue;   // componentes de FTM/SGM saem com preço 0
       if (!best || String(v.data) > String(best.data)) best = v;
       if (contrato && Kpis.vendaDoCliente(contrato, v) && (!bestCli || String(v.data) > String(bestCli.data))) bestCli = v;
     }
@@ -996,8 +996,18 @@ const Intel = (function(){
     return out;
   }
   const pega = (o, nomes) => { for (const n of nomes){ const k = normCab(n); if (o[k] != null && o[k] !== '') return o[k]; } return null; };
+  // CSV do SIG (ped2026, relsitped .csv): lido como texto — vírgula decimal, zeros à esquerda, latin1, ';'
+  function lerCSVComoObjetos(buf){
+    let txt; try { txt = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e){ txt = new TextDecoder('windows-1252').decode(buf); }
+    const linhas = txt.split(/\r?\n/).filter(l => l.trim());
+    if (!linhas.length) return [];
+    const sep = (linhas[0].match(/;/g) || []).length >= (linhas[0].match(/,/g) || []).length ? ';' : ',';
+    const cab = linhas[0].split(sep).map(x => normCab(x.replace(/^"|"$/g, '')));
+    return linhas.slice(1).map(l => { const c = l.split(sep); const o = {}; cab.forEach((h, j) => { let v = c[j] == null ? null : c[j].replace(/^"|"$/g, '').trim(); if (v === '' || /^\(NULO\)$/i.test(v)) v = null; if (h) o[h] = v; }); return o; });
+  }
   function dataDeCelula(v){
     if (v == null || v === '') return null;
+    { const m = typeof v === 'string' && v.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s|$)/); if (m) return m[3] + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0'); }
     if (v instanceof Date) return isNaN(v) ? null : v.toISOString().slice(0, 10);
     if (typeof v === 'number' && v > 20000 && v < 80000) return new Date(Math.round((v - 25569) * 86400000)).toISOString().slice(0, 10);
     return paraDataISO(v);
@@ -1068,22 +1078,23 @@ const Intel = (function(){
       const todas = [];
       for (const f of files){
         st.textContent = 'Lendo ' + f.name + '...'; await espera();
-        const rows = lerPlanilhaComoObjetos(await f.arrayBuffer());
+        const buf = await f.arrayBuffer();
+        const rows = /\.(csv|txt)$/i.test(f.name) ? lerCSVComoObjetos(buf) : lerPlanilhaComoObjetos(buf);
         const cont = new Map();
         rows.forEach(o => {
           const pedido = pega(o, ['pedido_id', 'Pedido', 'Nº pedido', 'Numero pedido']);
-          const prod = pega(o, ['idproduto', 'itens_id', 'Produto', 'ID produto']);
+          const prod = pega(o, ['idproduto', 'itens_id', 'Produto', 'ID produto', 'CODIGOPRODUTO']);
           if (pedido == null || prod == null) return;
           const k = pedido + '|' + prod; const linha = (cont.get(k) || 0) + 1; cont.set(k, linha);
           todas.push({
             pedido: String(pedido).replace(/\.0+$/, ''), produto_id: String(prod).replace(/\.0+$/, ''), linha,
-            data: dataDeCelula(pega(o, ['databreped', 'data', 'Data emissão', 'Data pedido', 'Data'])),
-            cliente_codigo: pega(o, ['numcli', 'Cliente', 'Código cliente', 'Cod cliente']) != null ? String(pega(o, ['numcli', 'Cliente', 'Código cliente', 'Cod cliente'])).trim() : null,
-            cliente_nome: pega(o, ['fantasia', 'Nome cliente', 'Razão social']) ? Kpis.nomeNorm(pega(o, ['fantasia', 'Nome cliente', 'Razão social'])) : null,
-            descricao: pega(o, ['descricao', 'Descrição']) || null,
-            ref_cliente: pega(o, ['refere', 'Referência cliente', 'Ref cliente']) != null ? String(pega(o, ['refere', 'Referência cliente', 'Ref cliente'])).trim() : null,
-            quantidade: num(pega(o, ['qtd', 'Quantidade'])), preco_unit: num(pega(o, ['preuni', 'Preço unitário', 'Preco unitario', 'Valor unitário'])),
-            situacao: pega(o, ['sitped', 'Situação']) || null
+            data: dataDeCelula(pega(o, ['databreped', 'data', 'Data emissão', 'Data pedido', 'Data', 'DATAEMISSAO'])),
+            cliente_codigo: pega(o, ['numcli', 'Cliente', 'Código cliente', 'Cod cliente', 'CODIGOCLIENTE']) != null ? String(pega(o, ['numcli', 'Cliente', 'Código cliente', 'Cod cliente', 'CODIGOCLIENTE'])).trim() : null,
+            cliente_nome: pega(o, ['fantasia', 'Nome cliente', 'Razão social', 'NOMECLIENTE']) ? Kpis.nomeNorm(pega(o, ['fantasia', 'Nome cliente', 'Razão social', 'NOMECLIENTE'])) : null,
+            descricao: pega(o, ['descricao', 'Descrição', 'APELIDOPRODUTO']) || null,
+            ref_cliente: pega(o, ['refere', 'Referência cliente', 'Ref cliente', 'REFERENCIACLIENTE']) != null ? String(pega(o, ['refere', 'Referência cliente', 'Ref cliente', 'REFERENCIACLIENTE'])).trim() : null,
+            quantidade: num(pega(o, ['qtd', 'Quantidade', 'QUANTIDADEORIGINAL'])), preco_unit: num(pega(o, ['preuni', 'Preço unitário', 'Preco unitario', 'Valor unitário', 'PRECO'])),
+            situacao: pega(o, ['sitped', 'Situação', 'SITUACAOPEDIDO']) || null
           });
         });
       }

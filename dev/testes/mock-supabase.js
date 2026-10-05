@@ -14,6 +14,8 @@
   Q.prototype.eq=function(c,v){ this.f.push(r=>String(r[c])===String(v)); return this; };
   Q.prototype.in=function(c,vs){ const s=new Set(vs.map(String)); this.f.push(r=>s.has(String(r[c]))); return this; };
   Q.prototype.gte=function(c,v){ this.f.push(r=>r[c]>=v); return this; };
+  Q.prototype.gt=function(c,v){ this.f.push(r=>r[c]>v); return this; };
+  Q.prototype.neq=function(c,v){ this.f.push(r=>String(r[c])!==String(v)); return this; };
   Q.prototype.lte=function(c,v){ this.f.push(r=>r[c]<=v); return this; };
   Q.prototype.order=function(c,o){ this.ord=[c,(o&&o.ascending===false)?-1:1]; return this; };
   Q.prototype.range=function(a,b){ this.r=[a,b]; return this; };
