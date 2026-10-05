@@ -687,7 +687,7 @@
   // ---------------- terminais ----------------
   const MJIC = [[7/16,4],[1/2,5],[9/16,6],[3/4,8],[7/8,10],[1+1/16,12],[1+3/16,14],[1+5/16,16],[1+5/8,20],[1+7/8,24],[2+1/2,32]];
   const MORFS = [[9/16,4],[11/16,6],[13/16,8],[1,10],[1+3/16,12],[1+7/16,16],[1+11/16,20],[2,24]];
-  const MPIPE = [[1/8,2],[1/4,4],[3/8,6],[1/2,8],[3/4,12],[1,16],[1.25,20],[1.5,24],[2,32],[2.5,40],[3,48]];
+  const MPIPE = [[1/8,2],[1/4,4],[3/8,6],[1/2,8],[5/8,10],[3/4,12],[1,16],[1.25,20],[1.5,24],[2,32],[2.5,40],[3,48]];
   const nearM = (tab, v, tol = 0.03) => { let b = null, bd = 9; for (const [k, d] of tab) { const x = Math.abs(k - v); if (x < bd) { bd = x; b = d; } } return bd <= tol ? b : null; };
   const THR_S = { 14: 6, 16: 8, 18: 10, 20: 12, 22: 14, 24: 16, 30: 20, 36: 25, 42: 30, 52: 38 };
   const THR_L = { 12: 6, 14: 8, 16: 10, 18: 12, 22: 15, 26: 18, 30: 22, 36: 28, 45: 35, 52: 42 };
@@ -793,6 +793,10 @@
     }
     const usoT = (o) => ((R.usoTerR || {})[o.id] || 0) * 1e6 + (R.usoTer[o.id] || 0);
     for (const l of this._ter.values()) l.sort((a, b) => usoT(b) - usoT(a));
+    // construção mais montada por bitola (cliente que não informa norma)
+    const fd = new Map();
+    for (const [k, l] of this._mang) { const [d, f] = k.split('|'); const u = l.reduce((a, o) => a + (R.usoR[o.id] || 0) * 50 + (R.uso[o.id] || 0), 0); if (!fd.has(+d)) fd.set(+d, []); fd.get(+d).push([f, u]); }
+    this._famPorDash = new Map([...fd].map(([d, l]) => [d, l.filter(x => x[1] > 0 && /^(AGR[12]|M3K|C[12]A?T|EFG[46]K)$/.test(x[0])).sort((a, b) => b[1] - a[1]).map(x => x[0])]).filter(([d, l]) => l.length));
     // FTM idêntica: mangueira + terminais
     this._ftmIx = new Map();
     for (const [n, mang, t1, t2, met, q1] of R.ftms) {
@@ -864,6 +868,160 @@
       if (!ftm && l.length) ftm = ['~' + l[0][0], l[0][1]];
     }
     return { dash, fam, porNorma, mang, altsM, ters, comprimento, capa, ftm };
+  }
+
+  // ---------------- mangueira montada pela descrição livre do cliente ----------------
+  // "MANG. R2 1/2 X 1,5M C/ TERM. FEMEA JIC 3/4 GIRATORIO RETO E 90", "FLEXIVEL 3/8 2SN DKOL 12 X DKOL 12 90 1200MM",
+  // "8AGR2 8G8FJX 8G8FJX90 1000MM", "MANGUEIRA 1/2 1 TRAMA TERMINAIS NPT 1/2 MACHO"...
+  // Separa mangueira / terminais / comprimento, monta no padrão Melting e lista o que falta o cliente informar.
+  const FAM_COD = /\b(\d{1,2})\s?-?\s?(AGR1|AGR2|C1TH|C1T|C2AT|M2T|M3K|M4K|EFG4KXLL|EFG4K|EFG5K|EFG6K|C14|C3H|C4H|C5C|C6H|J2AT|MXG4KXTP)\b/;
+  const NORMA_CLI = [
+    [/\bR\s?2\s?(?:AT)?\b|\b2\s?SN\b|\b2\s?TRAMAS?\b/, ['AGR2', 'C2AT', 'M2T']],
+    [/\bR\s?1\s?(?:AT)?\b|\b1\s?SN\b|\b1\s?TRAMAS?\b/, ['AGR1', 'C1T']],
+    [/\bR\s?17\b/, ['M3K', 'AGR2']],
+    [/\bR\s?12\b|\b4\s?SP\b|\b4\s?ESPIRA/, ['EFG4K', 'EFG4KXLL', 'MXG4KXTP']],
+    [/\bR\s?1[35]\b|\b4\s?SH\b|\b6\s?ESPIRA/, ['EFG6K', 'EFG5K']],
+    [/\bR\s?7\b|TERMOPLAST/, ['C7', 'M7']],
+    [/TEFLON|PTFE|\bR\s?14\b/, ['C14']]
+  ];
+  const TER_COD = /\b(FJX|FJ|FDLORX|FDHORX|FFORX|FBSPORX|MBSPP|MFFOR|FPX|MDL|MDH|MLSP|FLH|MJ|MP|FP)(90|45)?\b/;
+  const TER_KW = /TERMINA|\bTERMS?\b|\bPL\s?\d|PONTA LISA|FEMEA|\bFEM\b|MACHO|JIC|NPT|BSP|ORFS|DKO|FLANGE|BANJO|\bM\d{2}\s?X\s?[12]/;
+  const DN_MM = (v) => { let best = null, bd = 9; for (const [mm, ds] of DI_DASH) if (Math.abs(mm - v) < bd) { bd = Math.abs(mm - v); best = ds; } return bd <= 2 ? best : null; };
+  function fracDe(s) {
+    const m = s.match(/(\d+\.\d+\/\d+|\d\/\d+)/) || s.match(/(?<![\d,.])(\d(?:[.,]\d+)?)\s*(?:"|POL|'')/);
+    if (!m) return null; return /\//.test(m[1]) ? tofrac(m[1].replace('.', ' ')) : Number(m[1].replace(',', '.'));
+  }
+  function compCliente(t) {
+    let m = t.match(/\b(?:COMPRIMENTO|COMPR?|L|C)\s?[.:=]?\s*(?:TOTAL\s*)?:?\s*(\d+(?:[.,]\d+)?)\s*(MM|MTS?|METROS?|M|CM)?\b/);
+    if (!m) m = t.match(/(?<![\d\/.,])(\d+(?:[.,]\d+)?)\s*(MM|MTS?|METROS?|CM|M)\b(?!\s?\d)/);
+    if (!m) { const x = t.match(/\bX\s*(\d{3,5})\s*$/); if (x) return +x[1]; return null; }
+    let v = Number(m[1].replace(/\.(?=\d{3}\b)/, '').replace(',', '.')); const u = m[2] || (v < 100 ? 'M' : 'MM');
+    if (/^M(T|TS|ETROS?)?$/.test(u)) v *= 1000; else if (u === 'CM') v *= 10;
+    return v >= 50 && v <= 100000 ? Math.round(v) : null;
+  }
+  // um terminal descrito pelo cliente -> {T, td, ang}
+  function terminalCliente(seg, dash) {
+    let s = seg.replace(/\bFEM\b\.?/g, 'FEMEA').replace(/GIRAT\w*|\bGIR\b\.?/g, 'GIRAT').replace(/DKO\s?([LS])\s*-?\s*(\d{1,2})\b/g, (m, a, b) => 'DKO' + b.padStart(2, '0') + a)
+      .replace(/TUBO\s?(\d{1,2})\s?([LS])\b/g, (m, a, b) => 'DKO' + a.padStart(2, '0') + b).replace(/37\s?(?:°|º|GR\w*)/g, 'JIC').replace(/24\s?(?:°|º|GR\w*)/g, '24GR');
+    let ang = '';
+    const a = s.match(/(?<![\d\/,.X])(90|45)\s*(?:°|º|GR\w*|G\b)?(?![\d\/,])/);
+    if (a) ang = a[1]; else if (/CURV|COTOVELO|JOELHO/.test(s)) ang = '90';
+    s = s.replace(/(?<![\d\/,.X])(90|45)\s*(?:°|º|GR\w*|G\b)?(?![\d\/,])/g, ' ');
+    const cod = s.match(TER_COD);
+    let x = null;
+    const pl = s.match(/(?:\b\d{0,2}PL|PONTA LISA(?: TUBO)?)\s?(\d{1,2})\b/);
+    if (pl) x = { T: 'MLSP', td: +pl[1] };
+    else if (cod) {
+      if (cod[2]) ang = cod[2];
+      const v = fracDe(s); const n = s.match(/-\s?(\d{1,2})\b/);
+      const T = cod[1], tab = /J/.test(T) ? MJIC : /FOR/.test(T) ? MORFS : MPIPE;
+      const td = n ? +n[1] : v ? nearM(tab, v, 0.05) : dash;
+      x = { T: T === 'FJ' ? 'FJX' : T, td };
+    } else {
+      // "NPT 1", "ORFS 1 90": polegada inteira sem aspas
+      if (/NPT|BSP|ORFS|FLANGE|JIC/.test(s)) s = s.replace(/(?<![\d\/.,A-Z])([1-3])(?![\d\/.,"]|\s?(?:"|POL|MM|MTS?|M\b|[LS]\b))/g, '$1"');
+      const sc = s.replace(/(\d+\.\d+\/\d+|\d\/\d+)(?!\d|\s?(?:"|POL))/g, '$1"').replace(/(?:SAE|COD\w*)\s?\.?\s?(6[12])\b/g, 'CODIGO$1').replace(/(\d)\s+(?=\d)/g, '$1_').replace(/\.(?!\d+\/)/g, '').replace(/[^A-Z0-9\/",._]/g, '');
+      x = terminal(sc, dash, false, sc);
+      const dk = sc.match(/DKO(\d{2})([LS])/);
+      if (x && x.opcoes && dk) { const f = x.opcoes.filter(o => o.td === +dk[1] && (dk[2] === 'S' ? /H/ : /L/).test(o.T)); if (f.length) { x = Object.assign({}, f[0]); delete x.opcoes; } }
+      else if (x) { const n = s.match(/(?:JIC|NPT|BSP\w*|ORFS)\s*-\s?(\d{1,2})\b|\b-(\d{1,2})\b/); if (n && !/DKO|M\d{2}/.test(sc)) x.td = +(n[1] || n[2]); }
+    }
+    if (!x || !x.td) return null;
+    x.ang = ang; return x;
+  }
+  function mangueiraLivre(det, cat, ctx) {
+    if (!cat._ftm) return null;
+    const t = up(det).replace(/(?<![\/\dA-Z.,])(\d)[\s-]+(\d\/\d+)/g, '$1.$2').replace(/\s+/g, ' ').trim();
+    const fc = t.match(FAM_COD);
+    if (!fc && !/^(MANG|FLEX)/.test(t)) return null;
+    if (/JARDIM|INCENDIO|BOMBEIRO|PVC|SILICONE|CRISTAL|ASPIRA|SUCCAO|GAS\b|OXIGENIO|ACETILENO|AR COMPRIMIDO|PNEUMATIC|POLIURETANO|NYLON/.test(t)) return null;
+    // onde começam os terminais
+    const iTer = t.search(TER_KW); const iCod = t.search(TER_COD);
+    const corte = [iTer, iCod].filter(i => i > 0).sort((a, b) => a - b)[0];
+    const head = corte ? t.slice(0, corte) : t;
+    // família + bitola
+    let fams = null, porNorma = false, dash = null;
+    if (fc) { dash = +fc[1]; fams = [fc[2]]; porNorma = true; }
+    if (!fams) for (const [rx, f] of NORMA_FAM.concat(NORMA_CLI)) if (rx.test(t)) { fams = f; porNorma = true; break; }
+    const psi = (() => { const m = t.match(/(\d[\d.]*)\s*(PSI|BAR)\b/); if (!m) return null; const v = Number(m[1].replace(/\./g, '')); return m[2] === 'BAR' ? v * 14.5 : v; })();
+    if (!fams) { const f = familiaPorConstrucao(t, psi); if (f) { fams = f; porNorma = true; } }
+    if (!dash) {
+      let m = t.match(/BITOLA\s*:?\s*-?\s*(\d{1,2})\b(?![\/.,])/) || head.match(/(?:^|\s)[-#]\s?(\d{1,2})\b(?![\/.,])/);
+      if (m) dash = +m[1];
+      else if ((m = t.match(/\bDN\s?(\d{1,2})\b/))) dash = DN_MM(+m[1]);
+      else if ((m = t.match(/\b(\d{1,2}(?:[.,]\d)?)\s*MM\s*(?:DE\s*)?(?:DI|DIAM|D\.I|INTERNO)/))) dash = DN_MM(Number(m[1].replace(',', '.')));
+      else { const v = fracDe(head); if (v && v <= 3) dash = Math.round(v * 16); }
+      const h2 = head.replace(/\b\d\s?(?:TRAMAS?|SN|SP|SH|ESPIRA\w*)\b|SAE\s?100\s?R\s?\d+\w*|\bR\s?\d{1,2}(?:AT)?\b/g, ' ').replace(/\s+/g, ' ');
+      if (!dash && (m = h2.match(/^(?:MANG\w*|FLEXIVEL|FLEX)\.?\s+(?:HIDRAULICA\s+)?([1-3])\b(?![\/.,]|\s?(?:MM|MTS?|METROS?|M)\b)/))) dash = +m[1] * 16;
+      const tc = t.match(/\b(\d{1,2})G\d/); if (!dash && tc) dash = +tc[1];
+    }
+    if (!dash || dash < 3 || dash > 48) return null;
+    const pend = [];
+    if (!fams) {
+      // sem norma: a construção mais montada nessa bitola
+      const fu = cat._famPorDash && cat._famPorDash.get(dash);
+      if (!fu) return null;
+      fams = fu; pend.push('norma/pressão da mangueira');
+    }
+    let mang = null, fam = null, altsM = [];
+    const pm = prefMarcaMang(ctx, cat);
+    for (const f of fams) {
+      const l = cat._mang.get(dash + '|' + f); if (!l || !l.length) continue;
+      const pref = pm ? l.find(o => marcaMang(o.a) === pm) : null;
+      mang = pref || l[0]; fam = f; altsM = l.filter(o => o !== mang).slice(0, 3); break;
+    }
+    if (!mang) return null;
+    // terminais
+    const R = cat._ftm; const ters = [];
+    const resto = corte ? t.slice(corte) : '';
+    const achar = (x) => {
+      if (x.opcoes) {
+        const fk = dash + fam;
+        const sc = (o) => { const b = dash + 'G' + o.td + o.T; return (R.co[fk + '|' + b] || 0) * 1000 + (R.tot[b] || 0); };
+        const ang = x.ang; x = x.opcoes.slice().sort((p, q) => sc(q) - sc(p))[0]; x.ang = ang;
+      }
+      // mangueiras espiraladas (4SP/4SH/R12/R13) usam terminal da linha GS
+      let b = dash + 'G' + x.td + x.T + x.ang; let l = cat._ter.get(b) || [];
+      if (/^EFG|^MXG|^M4K/.test(fam)) { const bs = dash + 'GS' + x.td + x.T + x.ang; const ls = cat._ter.get(bs) || []; if (ls.length) { b = bs; l = ls; } }
+      const inox = /INOX|AISI|316|304/.test(t);
+      const o = (inox ? l.find(z => /INOX/.test(z.a)) : l.find(z => !/INOX/.test(z.a))) || null;
+      return o ? { prod: o, apelido: b, x } : { prod: null, apelido: b, x };
+    };
+    // terminais já no padrão Melting (8G12FJX90)
+    for (const m of t.matchAll(/\b(\d{1,2})G(\d{1,2}(?:,\d)?)([A-Z]+?)(90|45)?(?:SML\w*)?(?=\s|$|[;,+])/g)) {
+      if (+m[1] !== dash) continue;
+      ters.push(achar({ T: m[3], td: m[2], ang: m[4] || '' }));
+    }
+    if (!ters.length && resto) {
+      const segs = resto.replace(/^(?:C\/|COM)\s*/, '').split(/\s(?:X|E|\/|\+|-)\s|;|\+|\bLADO\s?[AB12]\s?:?|\bPONTA\s?[AB12]\s?:?|\bOUTRA PONTA\b|\bOUTRO LADO\b|\bTERMINAL\s?[AB12]\s?:?/).map(s => s.trim()).filter(Boolean);
+      // "FJX 1.1/16 FJX90 1.1/16" / "FEMEA JIC 3/4 FEMEA JIC 3/4 90": quebra onde começa outro terminal
+      const ST = new RegExp('\\b(?:FEMEA|MACHO|FLANGE)\\b|' + TER_COD.source, 'g');
+      const segs2 = [];
+      for (const sg of segs) { let ini = 0, n = 0; for (const m of sg.matchAll(ST)) { if (n++ && m.index > ini) { segs2.push(sg.slice(ini, m.index).trim()); ini = m.index; } } segs2.push(sg.slice(ini).trim()); }
+      let ult = null;
+      for (const sg of segs2) {
+        if (ters.length >= 2) break;
+        const x = terminalCliente(sg, dash);
+        if (x) { ters.push(achar(x)); ult = x; continue; }
+        // "... RETO E 90": mesmo terminal, outro ângulo
+        const so = sg.match(/^(?:RETO|(90|45)\s*(?:°|º|GR\w*)?|CURVO)$/);
+        if (so && ult) ters.push(achar(Object.assign({}, ult, { ang: so[1] || (/CURVO/.test(sg) ? '90' : '') })));
+      }
+      if (ters.length === 1 && (/TERMINAIS|\bTERMS\b|AMBOS|AMBAS|2\s?(?:TERMINAIS|PONTAS)|DUAS PONTAS|AS PONTAS|NAS PONTAS|2X/.test(t) || !/OUTRA|OUTRO|SEM TERMINAL|PONTA LIVRE|PONTA LISA/.test(t))) ters.push(ters[0]);
+    }
+    if (!ters.length && TER_KW.test(t)) return null;           // fala de terminal mas não entendemos: deixa para outras regras
+    if (!ters.length && !porNorma) return null;                // mangueira avulsa só com norma/construção clara
+    const comprimento = compCliente(head + ' ' + resto.replace(/(?:JIC|NPT|BSP\w*|ORFS|DKO\w*|M\d{2}X[\d,]+)\s*[\d\/".,-]*/g, ' ')) || compCliente(t);
+    if (ters.length === 2 && ters[0].x.ang && ters[1].x.ang && !/ANGULO|POSICAO|DEFASAG|ALINHAD|MESMO PLANO|\d{2,3}\s?(?:°|º|GR)\s*(?:ENTRE|DE MONTAGEM)/.test(t)) pend.push('ângulo de montagem entre os terminais curvos');
+    if (ters.length && !comprimento) pend.push('comprimento');
+    const capaId = ters.length ? R.capa[mang.id] : null; const capa = capaId ? cat.get(capaId) : null;
+    let ftm = null;
+    if (ters.length === 2 && ters.every(x => x.prod)) {
+      const l = cat._ftmIx.get(mang.id + '|' + ters.map(x => x.prod.id).sort().join('+')) || [];
+      ftm = l.find(([n, met]) => comprimento && met === comprimento) || null;
+      if (!ftm && l.length) ftm = ['~' + l[0][0], l[0][1]];
+    }
+    return { dash, fam, porNorma, mang, altsM, ters, comprimento, capa, ftm, pend, avulsa: !ters.length, livre: true };
   }
 
   // ---------------- travas (arcfill2.strict) ----------------
@@ -1273,8 +1431,15 @@
       }
     }
     // 4e) mangueira montada: mangueira + terminais + capa (componentes do cadastro)
-    if (P.regrasMangueira !== false && /^MANGUEIRA/.test(det)) {
-      const x = mangueiraRule(det, cat, ctx);
+    if (P.regrasMangueira !== false) {
+      // descrição SAP estruturada (BITOLA:, TERMINAL A:, NORMA:...) -> regra SAP; texto livre -> parser do cliente
+      const sap = /^MANGUEIRA/.test(det) && /BITOLA|DIAMETRO|TERMINAL\s?\(?[AB]\)?\s?:|NORMA\s?:|PRESSAO|;/.test(det);
+      const x = sap ? mangueiraRule(det, cat, ctx) : (mangueiraLivre(det + (ref ? ' ' + up(ref) : ''), cat, ctx) || (/^MANGUEIRA/.test(det) && mangueiraRule(det, cat, ctx)));
+      if (x && x.avulsa) {
+        const comps = [{ papel: 'mangueira', id: x.mang.id, apelido: x.mang.a, qtd: x.comprimento ? Math.round(x.comprimento) / 1000 : null, un: 'm' }];
+        return res(x.mang.id, 'regra-mangueira', 'media', 'Mangueira ' + x.fam + ' bitola ' + x.dash + ' (sem terminais)' + (x.comprimento ? ' — ' + (x.comprimento / 1000).toLocaleString('pt-BR') + ' m' : ''), null,
+          { componentes: comps, alternativas: x.altsM.map(o => ({ id: o.id, score: null, recusa: 'outra mangueira ' + x.fam })) });
+      }
       if (x) {
         const comps = [{ papel: 'mangueira', id: x.mang.id, apelido: x.mang.a, qtd: x.comprimento ? Math.round(x.comprimento) / 1000 : null, un: 'm' }];
         let faltam = 0;
@@ -1282,9 +1447,9 @@
         if (!x.ters.length) faltam = 2;
         if (x.capa) comps.push({ papel: 'capa', id: x.capa.id, apelido: x.capa.a, qtd: 2, un: 'pc' });
         const resumo = comps.map(c => (c.papel === 'mangueira' && c.qtd ? c.qtd.toLocaleString('pt-BR') + ' m ' : '') + c.apelido).join(' + ');
-        const conf = x.porNorma && !faltam ? 'media' : 'baixa';
+        const conf = x.porNorma && !faltam && !(x.pend || []).some(p => /norma/.test(p)) ? 'media' : 'baixa';
         const nota = x.ftm ? (String(x.ftm[0]).startsWith('~') ? ' — já montada antes como FTM ' + String(x.ftm[0]).slice(1) + ' (outro comprimento)' : ' — igual à FTM ' + x.ftm[0]) : '';
-        return res(x.mang.id, 'regra-mangueira', conf, 'Montagem: ' + resumo + nota + (faltam ? ' — terminal a conferir' : ''), null,
+        return res(x.mang.id, 'regra-mangueira', conf, 'Montagem: ' + resumo + nota + (faltam ? ' — terminal a conferir' : '') + (x.pend && x.pend.length ? ' — pedir ao cliente: ' + x.pend.join(', ') : ''), null,
           { componentes: comps, ftm: x.ftm ? String(x.ftm[0]).replace('~', '') : null, alternativas: x.altsM.map(o => ({ id: o.id, score: null, recusa: 'outra mangueira ' + x.fam })) });
       }
     }
@@ -1407,7 +1572,7 @@
   const Motor = {
     deacc, up, comp, norm, tofrac, sizes, sideSpec, terminalRule, adapterRule, travas, threads, types, toks,
     Catalogo, Aprendizado, sugerir, medidasDescricaoOk, PADRAO, bitolaCliente,
-    conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule, parsePlana, correiaPlanaRule, agregarCortes, parseLL, agregarKits, agregarFtm, mangueiraRule
+    conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule, parsePlana, correiaPlanaRule, agregarCortes, parseLL, agregarKits, agregarFtm, mangueiraRule, mangueiraLivre
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = Motor;
   else root.Motor = Motor;
