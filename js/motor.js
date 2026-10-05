@@ -1158,6 +1158,33 @@
     return c.length ? { prod: c[0], base, porCodigo, outras: c.slice(1, 4) } : { prod: null, base, porCodigo };
   }
 
+  // ---------------- tubo de poliamida / nylon (padrão TUBONYLON[-11-]{DE}X{DI}{COR}) ----------------
+  // "Tubing Poliamida 12 ... Espessura 0,75MM; Diametro Externo 4,00 MM; Cor Natural" -> TUBONYLON4X2,5NAT
+  const COR_TUBO = [[/NATUR|TRANSL|INCOLOR|CRISTAL/, 'NAT'], [/PRET/, 'PRETO'], [/AZUL/, 'AZUL'], [/VERMELH/, 'VERMELHO'], [/AMAREL/, 'AMARELO'], [/VERDE/, 'VERDE'], [/BRANC/, 'BRANCO']];
+  function tuboNylonRule(det, cat) {
+    const t = up(det).replace(/\s+/g, ' ');
+    if (!/\b(TUBO|TUBING|MANGUEIRA)\b/.test(t) || !/POLIAMIDA|NYLON|\bPA ?1[12]\b/.test(t)) return null;
+    const n = (x) => Number(String(x).replace(',', '.'));
+    let de = (t.match(/DI[AÂ]METRO EXTERNO\s*:?\s*(\d{1,2}(?:[.,]\d+)?)\s*MM/) || t.match(/\bD\.?E\.?\s*:?\s*(\d{1,2}(?:[.,]\d+)?)\s*MM/) || [])[1];
+    let di = (t.match(/DI[AÂ]METRO INTERNO\s*:?\s*(\d{1,2}(?:[.,]\d+)?)\s*MM/) || t.match(/\bD\.?I\.?\s*:?\s*(\d{1,2}(?:[.,]\d+)?)\s*MM/) || [])[1];
+    const esp = (t.match(/ESPESSURA(?: DA PAREDE)?\s*:?\s*(\d(?:[.,]\d+)?)\s*MM/) || [])[1];
+    const x = t.match(/(?<![\d,.])(\d{1,2}(?:[.,]\d+)?)\s*X\s*(\d{1,2}(?:[.,]\d+)?)\s*(?:MM)?(?![\d])/);
+    if (!de && x) { de = x[1]; di = x[2]; }
+    if (!de) return null;
+    de = n(de); di = di != null ? n(di) : (esp != null ? Math.round((de - 2 * n(esp)) * 100) / 100 : null);
+    if (di == null || di <= 0 || di >= de) return null;
+    const f = (v) => String(+v.toFixed(2)).replace('.', ',');
+    const cor = (COR_TUBO.find(([rx]) => rx.test(t)) || [, ''])[1];
+    const pa11 = /POLIAMIDA\s*11|NYLON\s*-?\s*11|\bPA\s?11\b/.test(t);
+    const bases = (pa11 ? ['TUBONYLON-11-'] : ['TUBONYLON', 'TUBONYLON-12-']).map(b => b + f(de) + 'X' + f(di));
+    for (const b of bases) {
+      const c = cat.lista.filter(o => o.ativo && o.a.startsWith(b) && !/^\d/.test(o.a.slice(b.length)) && (!cor || o.a.slice(b.length).startsWith(cor)))
+        .sort((a, z) => a.a.length - z.a.length);
+      if (c.length) return { prod: c[0], base: b + cor, outras: c.slice(1, 4), de, di, pa11 };
+    }
+    return { prod: null, base: bases[0] + cor, de, di, pa11 };
+  }
+
   // ---------------- código do fabricante citado na descrição (20PM, 400SF, FFH04, 837BM...) ----------------
   const COD_RUIM = /^(\d+(MM|CM|M|MT|MTS|KG|G|V|VCA|VCC|W|KW|BAR|PSI|LBS|L|ML|PCS?|UN|HP|RPM|NM|A|MA)|M\d+(X[\d.,]+)?|\d+X\d*|[A-Z]\d|\d[A-Z]|LIB\d*|NR\d+|NBR\d+|DIN\d+|ISO\d+|SAE\d+\w*|ASTM\w*|AISI\d+|R\d{1,2}(AT)?|\d{1,2}SN|\d+(LBS|BAR)\w*|CF8M?|PN\d+|DN\d+|PG\d+|FIG\d+|IP\d+|CL\d+|CLASSE\d+|SCH\d+|N\d+|\d+TH|\d+[A-Z]?\/\d+.*|\d*R\d+[A-Z]*|\d+GR(AUS)?|A\d{3}[A-Z]*|AISI\w*|J\d{3,4}|\d+POL|\d*(BSP|NPT|UNF|JIC|ORFS|BSPP|BSPT|NPTF)\w*|\d+FPP|\d+FIOS|\d+(TRAMAS?|ESPIRAIS?)|SGM\d+|FTM\d+|\d+[LS]|\d+(MPA|KPA|LB|KGF|MCA|TON|GB|MB|TB|MAH|LM|CV)|\d+X\d+\w*)$/;
   function codigosFab(texto) {
@@ -1717,6 +1744,12 @@
       const x = pneumaticaRule(det + ' ' + (ref || ''), cat);
       if (x && x.prod && ok(x.prod)) return res(x.prod.id, 'regra-pneumatica', x.porCodigo ? 'media' : 'baixa', 'Conexão pneumática ' + x.base + (x.porCodigo ? ' (código Festo/Camozzi no pedido)' : ' pela descrição') + ' — conferir', null, { alternativas: (x.outras || []).map(o => ({ id: o.id, score: null, recusa: 'variante' })) });
     }
+    // 4g) tubo de poliamida/nylon pelo diâmetro externo x interno (ou espessura)
+    {
+      const x = tuboNylonRule(det + ' ' + (ref || ''), cat);
+      if (x && x.prod && ok(x.prod)) return res(x.prod.id, 'regra-tubo', 'media', 'Tubo ' + (x.pa11 ? 'poliamida 11' : 'poliamida/nylon') + ' ' + x.de + ' x ' + x.di + ' mm (padrão ' + x.base + ') — conferir', null, { alternativas: (x.outras || []).map(o => ({ id: o.id, score: null, recusa: 'variante' })) });
+      if (x && !x.prod) alternativas.push({ id: null, score: null, recusa: 'tubo ' + x.base + ' não cadastrado' });
+    }
     // 5) equivalente ao REF
     if (r && r.length >= 4 && !/^\d+$/.test(r)) {
       for (const c of cat.buscar(r, 12)) {
@@ -1777,7 +1810,7 @@
   const Motor = {
     deacc, up, comp, norm, tofrac, sizes, sideSpec, terminalRule, adapterRule, travas, threads, types, toks,
     Catalogo, Aprendizado, sugerir, medidasDescricaoOk, PADRAO, bitolaCliente,
-    conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule, parsePlana, correiaPlanaRule, agregarCortes, parseLL, agregarKits, agregarFtm, mangueiraRule, mangueiraLivre, continentalParaMelting, famMang, equivalenciaPlana, pneumaticaRule, codigoFabricanteRule, codigosFab
+    conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule, parsePlana, correiaPlanaRule, agregarCortes, parseLL, agregarKits, agregarFtm, mangueiraRule, mangueiraLivre, continentalParaMelting, famMang, equivalenciaPlana, pneumaticaRule, tuboNylonRule, codigoFabricanteRule, codigosFab
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = Motor;
   else root.Motor = Motor;
