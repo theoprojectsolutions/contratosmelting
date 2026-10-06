@@ -91,6 +91,7 @@ const Intel = (function(){
       S.kitsInfo = reg.kits || null;
       S.ftmInfo = reg.ftm || null;
       S.equivInfo = reg.equivalencias || null;
+      S.histDescInfo = reg.histdesc || null;
       try { localStorage.setItem(PARAMS_STORAGE_KEY, JSON.stringify(PARAMS)); } catch (e){}
       HOJE = dataReferencia();
     } catch (e){ console.warn('[Parâmetros]', e.message || e); }
@@ -142,6 +143,7 @@ const Intel = (function(){
     await anexarKits(S.catalogo);
     await anexarFtm(S.catalogo);
     await anexarEquivalencias(S.catalogo);
+    await anexarHistDesc();
     return S.catalogo;
   }
   // histórico de FTMs (mangueiras montadas): resumo no arquivo do motor -> cache
@@ -159,6 +161,55 @@ const Intel = (function(){
       if (!R && cache && cache.resumo) R = cache.resumo;
       if (R){ cat.definirFtm(R); S.ftmTotal = (R.ftms || []).length; }
     } catch (e){ console.warn('[FTM]', e.message || e); }
+  }
+  // histórico por descrição de TODAS as vendas (qualquer cliente): arquivo do motor -> cache.
+  // Formato: { "<chave da descrição>": [[produto_id, nº vendas, última data, [códigos cliente], [nomes cliente]], ...] }
+  async function anexarHistDesc(){
+    try {
+      const cache = await IDB.get('histdesc');
+      const versao = S.histDescInfo && S.histDescInfo.versao;
+      let I = (cache && cache.idx && (!DB_ATIVO || !versao || cache.versao === versao)) ? cache.idx : null;
+      if (!I && DB_ATIVO && versao){
+        const { data, error } = await supabaseClient.storage.from('motor').download('histdesc.json.gz');
+        if (error || !data) throw error || new Error('sem arquivo histdesc.json.gz');
+        I = JSON.parse(await new Response(data.stream().pipeThrough(new DecompressionStream('gzip'))).text());
+        await IDB.set('histdesc', { versao, idx: I });
+      }
+      if (!I && cache && cache.idx) I = cache.idx;
+      if (I){ S.histDescIdx = I; _histDescCache = null; }
+    } catch (e){ console.warn('[Histórico por descrição]', e.message || e); }
+  }
+  function montarIndiceHistDesc(vendas){
+    const I = {};
+    for (const v of vendas){
+      if (!v.descricao || !/^\d+$/.test(String(v.produto_id)) || /CANCEL/i.test(v.situacao || '')) continue;
+      const k = Motor.chaveDescHist(v.descricao); if (k.length < 8) continue;
+      const l = I[k] || (I[k] = []); const id = String(v.produto_id);
+      let e = l.find(x => x[0] === id); if (!e){ e = [id, 0, '', [], []]; l.push(e); }
+      e[1]++; if (v.data && String(v.data) > e[2]) e[2] = String(v.data);
+      const cod = v.cliente_codigo != null ? String(v.cliente_codigo).replace(/^0+/, '') : ''; if (cod && !e[3].includes(cod) && e[3].length < 40) e[3].push(cod);
+      const nm = v.cliente_nome ? Kpis.nomeNorm(v.cliente_nome) : ''; if (nm && !e[4].includes(nm) && e[4].length < 40) e[4].push(nm);
+    }
+    return I;
+  }
+  async function gravarHistDesc(st){
+    let vendas = S.vendas;
+    if (DB_ATIVO){
+      st.textContent = 'Montando o histórico por descrição (todas as vendas)...'; await espera();
+      vendas = await selectAll('vendas', null, 'produto_id,descricao,cliente_codigo,cliente_nome,data');
+    }
+    const I = montarIndiceHistDesc(vendas);
+    const versao = new Date().toISOString(); const total = Object.keys(I).length;
+    if (DB_ATIVO){
+      const gz = await gzipJSON(I); if (!gz) throw new Error('navegador sem compressão');
+      const { error } = await supabaseClient.storage.from('motor').upload('histdesc.json.gz', gz, { upsert: true, contentType: 'application/gzip' });
+      if (error) throw error;
+      await salvarParametro('histdesc', { versao, total });
+      S.histDescInfo = { versao, total };
+    }
+    await IDB.set('histdesc', { versao, idx: I });
+    S.histDescIdx = I; _histDescCache = null;
+    return total;
   }
   // equivalências de correias (outra marca -> Nitta): tabela -> cache
   async function anexarEquivalencias(cat){
@@ -493,7 +544,7 @@ const Intel = (function(){
     const buf = await file.arrayBuffer();
     RP.wb = XLSX.read(buf, { type: 'array', cellDates: true });
     RP.nomeArquivo = file.name;
-    RP.origem = 'arquivo';
+    RP.origem = 'arquivo'; $('rp-config').classList.remove('modo-texto');
     const abas = RP.wb.SheetNames;
     // escolhe a aba com mais linhas preenchidas
     let melhor = abas[0], n = -1;
@@ -567,30 +618,29 @@ const Intel = (function(){
   }
   // "o cliente escreveu X, vendemos Y": descrição da venda (complemento do pedido) -> produto mais vendido com ela.
   // Vendas do próprio cliente do contrato valem mais; descrição que já virou produtos diferentes fica com o mais vendido.
+  // Índice de TODAS as vendas (arquivo do motor, gravado na importação de vendas); sem ele, só as vendas carregadas
+  // (clientes com contrato).
   let _histDescCache = null;
   function histPorDescricao(contrato){
-    if (!S.vendas || !S.vendas.length) return null;
-    if (!_histDescCache || _histDescCache.n !== S.vendas.length){
-      const geral = new Map();
-      for (const v of S.vendas){
-        if (!v.descricao || !/^\d+$/.test(String(v.produto_id)) || /CANCEL/i.test(v.situacao || '')) continue;
-        const k = Motor.chaveDescHist(v.descricao); if (k.length < 8) continue;
-        const m = geral.get(k) || new Map(); const x = m.get(String(v.produto_id)) || { n: 0, data: null, vendas: [] };
-        x.n++; if (!x.data || String(v.data || '') > x.data) x.data = v.data || x.data; x.vendas.push(v); m.set(String(v.produto_id), x); geral.set(k, m);
-      }
-      _histDescCache = { n: S.vendas.length, geral };
+    let I = S.histDescIdx;
+    if (!I){
+      if (!S.vendas || !S.vendas.length) return null;
+      if (!_histDescCache || _histDescCache.n !== S.vendas.length) _histDescCache = { n: S.vendas.length, I: montarIndiceHistDesc(S.vendas) };
+      I = _histDescCache.I;
     }
-    const out = new Map();
-    for (const [k, m] of _histDescCache.geral){
-      let best = null;
-      for (const [id, x] of m){
-        const doCli = contrato ? x.vendas.some(v => Kpis.vendaDoCliente(contrato, v)) : false;
-        const sc = (doCli ? 1e6 : 0) + x.n;
-        if (!best || sc > best.sc) best = { sc, id, n: x.n, data: x.data ? dataBR(x.data) : null, doCliente: doCli, cliente: x.vendas[x.vendas.length - 1].cliente_nome };
+    const cache = contrato ? { cods: new Set(Kpis.codigos(contrato)), nomes: new Set(Kpis.nomes(contrato)) } : null;
+    const doCli = (e) => !!cache && (e[3].some(c => cache.cods.has(c)) || e[4].some(n => cache.nomes.has(n)));
+    // Map "preguiçoso": só calcula a chave que o motor pergunta
+    const memo = new Map();
+    return {
+      size: Object.keys(I).length || 0,
+      get(k){
+        if (memo.has(k)) return memo.get(k);
+        const l = I[k]; let best = null;
+        if (l) for (const e of l){ const dc = doCli(e); const sc = (dc ? 1e6 : 0) + e[1]; if (!best || sc > best.sc) best = { sc, id: e[0], n: e[1], data: e[2] ? dataBR(e[2]) : null, doCliente: dc, cliente: e[4][e[4].length - 1] || null }; }
+        memo.set(k, best); return best;
       }
-      out.set(k, best);
-    }
-    return out;
+    };
   }
   // vendas de qualquer cliente SIG com esses códigos de item (o mesmo cliente às vezes tem vários códigos no SIG)
   async function historicoPorCodigos(codigos){
@@ -704,6 +754,47 @@ const Intel = (function(){
   function mesclarVendas(a, b){
     const k = (v) => v.pedido + '|' + v.produto_id + '|' + (v.linha || 1);
     const m = new Map(a.map(v => [k(v), v])); b.forEach(v => m.set(k(v), v)); return [...m.values()];
+  }
+
+  // ---------- colar descrições (e-mail / colunas do Excel) ----------
+  // cada linha vira um item; com TAB (colado do Excel): a célula de texto mais longa é a descrição,
+  // um número curto no fim é a quantidade e um código sem espaços é o código do cliente
+  function linhasDoTexto(txt){
+    const out = [];
+    for (let l of String(txt || '').split(/\r?\n/)){
+      if (!l.trim()) continue;
+      let cod = '', desc = '', qtd = '';
+      if (l.includes('\t')){
+        const cs = l.split('\t').map(x => x.trim());
+        const iq = cs.map((x, i) => /^\d{1,6}(?:[.,]\d+)?$/.test(x) ? i : -1).filter(i => i >= 0).pop();
+        if (iq != null && iq >= 0 && cs.filter(x => /[A-Za-z]/.test(x)).length) qtd = cs[iq];
+        const textos = cs.map((x, i) => ({ x, i })).filter(o => o.i !== iq && /[A-Za-zÀ-ú]/.test(o.x));
+        const d = textos.sort((a, b) => b.x.length - a.x.length)[0];
+        desc = d ? d.x : cs.join(' ');
+        const c = cs.find((x, i) => i !== iq && (!d || i !== d.i) && /^[\w.\/-]{3,25}$/.test(x) && /\d/.test(x));
+        if (c) cod = c;
+      } else {
+        desc = l.trim().replace(/^(?:item\s*)?\d{1,3}\s*[-–—.)]\s+(?=\S)/i, '');
+        const q = desc.match(/\s[-–]?\s*(?:qtd|qtde|quant(?:idade)?)\.?\s*:?\s*(\d+(?:[.,]\d+)?)\s*(?:pc|pcs|p[çc]s?|un|m)?\.?\s*$/i);
+        if (q){ qtd = q[1]; desc = desc.slice(0, q.index).trim(); }
+      }
+      if (desc) out.push([cod, desc, qtd]);
+    }
+    return out;
+  }
+  async function responderTexto(){
+    const linhas = linhasDoTexto($('rp-texto').value);
+    if (!linhas.length){ showToast('Cole pelo menos uma descrição'); return; }
+    RP.origem = 'texto'; RP.wb = null; RP.nomeArquivo = 'descricoes_cliente'; RP.aba = null;
+    RP.matriz = [['Código', 'Descrição', 'Qtd']].concat(linhas);
+    RP.cab = 0; RP.mapa = adivinharMapa(RP.matriz[0]);
+    $('rp-aba').innerHTML = ''; $('rp-cab').value = 1;
+    $('rp-arquivo-nome').textContent = linhas.length + ' item(ns) colado(s)';
+    $('rp-config').hidden = false; $('rp-config').classList.add('modo-texto');
+    renderMapa();
+    await rodarMotor();
+    const usarIA = $('rp-texto-ia').checked;
+    if (usarIA && RP.itens.some(i => !i.produto_id || i.confianca === 'baixa')) await pedirIA();
   }
 
   async function abrirRevisaoContrato(id){
@@ -1008,6 +1099,10 @@ const Intel = (function(){
     $('rp-cab').addEventListener('change', e => { RP.cab = Math.max(0, Number(e.target.value) - 1); RP.mapa = adivinharMapa(RP.matriz[RP.cab] || []); renderMapa(); });
     $('rp-contrato').addEventListener('change', e => { RP.contratoId = e.target.value; if (!$('rp-resultado').hidden) renderResultado(); });
     $('rp-rodar').addEventListener('click', rodarMotor);
+    $('rp-texto-rodar').addEventListener('click', responderTexto);
+    $('rp-texto').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); responderTexto(); } });
+    $('rp-texto-ia').checked = !!(PARAMS.ia && PARAMS.ia.ativa);
+    $('rp-texto-ia').addEventListener('change', e => { e.target.dataset.mexido = '1'; });
     $('rp-filtro').addEventListener('change', e => { RP.filtro = e.target.value; renderResultado(); });
     $('rp-busca').addEventListener('input', e => { RP.busca = e.target.value; renderTabela(); });
     $('rp-aprovar-altas').addEventListener('click', () => {
@@ -1159,10 +1254,12 @@ const Intel = (function(){
         const k = (v) => v.pedido + '|' + v.produto_id + '|' + v.linha;
         const m = new Map(S.vendas.map(v => [k(v), v])); todas.forEach(v => m.set(k(v), Object.assign({}, m.get(k(v)) || {}, v))); S.vendas = [...m.values()];
       }
+      let nDesc = 0;
+      try { nDesc = await gravarHistDesc(st); } catch (e){ console.warn('[Histórico por descrição]', e.message || e); }
       bar.style.width = '100%';
       const datas = todas.map(v => v.data).filter(Boolean).sort();
       const clientes = new Set(todas.map(v => v.cliente_codigo));
-      st.textContent = `${todas.length.toLocaleString('pt-BR')} linhas de venda importadas · ${clientes.size} cliente(s) · ${datas.length ? dataBR(datas[0]) + ' a ' + dataBR(datas[datas.length - 1]) : ''}`;
+      st.textContent = `${todas.length.toLocaleString('pt-BR')} linhas de venda importadas · ${clientes.size} cliente(s) · ${datas.length ? dataBR(datas[0]) + ' a ' + dataBR(datas[datas.length - 1]) : ''}${nDesc ? ` · ${nDesc.toLocaleString('pt-BR')} descrições no histórico do motor` : ''}`;
       recalcularTodos(); renderDashboardCompleto(); atualizarStatusBase();
       showToast('Histórico de vendas importado');
     } catch (e){ console.error(e); st.textContent = 'Erro: ' + (e.message || e); }
@@ -1572,7 +1669,7 @@ const Intel = (function(){
 
   // ---------------- ganchos chamados pelo app.js ----------------
   function aoAbrirView(view){
-    if (view === 'responder') popularContratosSelect($('rp-contrato') ? $('rp-contrato').value : '');
+    if (view === 'responder'){ popularContratosSelect($('rp-contrato') ? $('rp-contrato').value : ''); const cb = $('rp-texto-ia'); if (cb && !cb.dataset.mexido) cb.checked = !!(PARAMS.ia && PARAMS.ia.ativa); }
     if (view === 'base'){ atualizarStatusBase(); if (!S.catalogo) carregarCatalogo().then(atualizarStatusBase).catch(() => {}); }
     if (view === 'parametros') renderParametros();
     if (view === 'consulta'){ renderConsulta(); if (!S.catalogo) carregarCatalogo().then(() => renderConsulta()).catch(() => {}); }

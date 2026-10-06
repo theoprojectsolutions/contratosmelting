@@ -78,3 +78,16 @@
 #tbl-cs mark{ background:rgba(255,200,0,.35); color:inherit; border-radius:2px; }
 .rp-comps{ margin:6px 0 0; padding-left:16px; font-size:12px; }
 .rp-comps li{ margin:1px 0; }
+
+/* Responder: colar descrições */
+.rp-colar{ margin-top:18px; }
+.rp-colar h3{ margin:0 0 4px; }
+.rp-ou{ display:flex; align-items:center; gap:12px; margin:4px 0 14px; color:var(--text-3, #6a7b8c); font-size:13px; text-transform:uppercase; letter-spacing:.08em; }
+.rp-ou::before, .rp-ou::after{ content:""; flex:1; height:1px; background:var(--border, #d5e0ea); }
+#rp-texto{ width:100%; box-sizing:border-box; margin-top:8px; padding:12px 14px; border:1.5px solid var(--border, #d5e0ea); border-radius:12px; font:inherit; font-size:14px; line-height:1.5; resize:vertical; background:var(--surface, #fff); color:inherit; }
+#rp-texto:focus{ outline:none; border-color:var(--brand-500, #3ab8ff); }
+.rp-colar-acoes{ display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-top:10px; }
+.rp-check{ display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer; }
+/* colado: só o contrato de destino (sem aba, cabeçalho e mapa de colunas) */
+#rp-config.modo-texto .field:has(#rp-aba), #rp-config.modo-texto .field:has(#rp-cab),
+#rp-config.modo-texto .intel-sub-title, #rp-config.modo-texto #rp-mapa{ display:none; }

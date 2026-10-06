@@ -203,6 +203,17 @@
             <div class="dropzone-sub">Arcelor, Suzano, Trivium... qualquer formato com código, descrição e quantidade</div>
           </label>
 
+          <div class="rp-colar">
+            <div class="rp-ou"><span>ou</span></div>
+            <h3>Colar as descrições do cliente</h3>
+            <p class="panel-sub">Uma linha por item: texto de e-mail ou colunas copiadas do Excel (código, descrição, quantidade). <b>Ctrl+Enter</b> responde.</p>
+            <textarea id="rp-texto" rows="6" placeholder="Mangueira montada de média pressão TLMP 18 x 7000mm&#10;CORREIA SINCR. 960-8MGT4-30&#10;CONEXAO RAPIDA RETA 8MM X 1/4 BSP"></textarea>
+            <div class="rp-colar-acoes">
+              <label class="rp-check"><input type="checkbox" id="rp-texto-ia"> Usar IA (API Claude) nos itens que o motor não resolver</label>
+              <button type="button" class="btn" id="rp-texto-rodar">Responder agora</button>
+            </div>
+          </div>
+
           <div id="rp-config" hidden>
             <div class="form-grid" style="margin-top:18px;">
               <div class="field"><label>Aba</label><select id="rp-aba"></select></div>
