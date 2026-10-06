@@ -398,9 +398,19 @@
     if (!/CORREIA|\bCORR\b|SLAB|BELT/.test(t)) return null;
     // formatos curtos de cadastro de cliente: 1040X8MX30, 10408M30 colado, 50DZ, 2500MM
     if (!ehCadastro) {
+      // código colado à marca ou ao HTD: "GATES/260XL050", "UNIROYAL/1100H200", "HTD210014M85", "HTD3303M6"
+      t = t.replace(/(?:(?<=[A-Z])\/|\bHTD-?)(?=\d)/g, ' ');
+      t = t.replace(/(\d{3,5})\s*-\s*(XL|XH|L|H)\s*-\s*(\d{2,3})\b/, '$1 $2 $3').replace(/(\d)DU\b|\bDU$/, '$1 DUPLO DENTE');
+      // formato Suzano: "SINCRONIZ 10MM 25MM 1350MM" (passo, largura, comprimento)
+      { const z = t.match(/SINCRONI\w*\s+(3|5|8|10|14|20)\s*MM\s+(\d{1,3})\s*MM\s+(\d{3,5})\s*MM/);
+        if (z && !/\b(\d{3,5})\s*-?\s*(?:S?\d{1,2}M|T\d|AT\d|XL|XH|H|L)\b/.test(t.replace(z[0], ''))) {
+          const pf = { 3: '3M', 5: /HTD|5M/.test(t) ? '5M' : 'T5', 8: '8M', 10: /\bAT|ATP/.test(t) ? 'AT10' : 'T10', 14: '14M', 20: /\bAT/.test(t) ? 'AT20' : 'T20' }[z[1]];
+          t = t.replace(z[0], ' ' + z[3] + ' ' + pf + ' ' + z[2] + ' ');
+        } }
       t = t.replace(/(\d{3,5})\s*X\s*(D?(?:S?(?:3|5|8|14|20)M|XL|XH|H|L|T5|T10|AT5|AT10))\s*X\s*(\d{1,3})/, '$1 $2 $3')
            .replace(/(?:^|\s)(\d{3,4})(S?(?:3|5|8|14)M)(\d{2,3})(?=\s|$)/, ' $1 $2 $3')
-           .replace(/(?:^|\s)(\d{2,4})(XL|XH|L|H)(0\d{2}|\d{3})(?=\s|$)/, ' $1 $2 $3')
+           .replace(/(?:^|\s)(\d{3,4})(3M)(\d)(?=\s|$)/, ' $1 $2 $3')
+           .replace(/(?:^|\s)(\d{2,4})(XL|XH|L|H)(0\d{2}|\d{2,3})(?=\s|$)/, ' $1 $2 $3')
            .replace(/(\d)(DZ|ABS|SML)\b/g, '$1 $2').replace(/(\d)MM\b/g, '$1')
            .replace(/\bMULTI\s*V(?=\s*\d)/, 'MICRO V ')
            // Goodyear Eagle: RPP8 = 8M, RPP GOLD / GLD8 = 8MGT ("2400-RPP8-30", "RPP-GOLD-1280-GLD8-50")
@@ -413,7 +423,7 @@
            // "2600 8M GT30" -> 2600 8MGT 30
            .replace(/\b(\d{3,5})\s+((?:3|5|8|14)M)\s+GT\s*(\d{1,3})\b/, '$1 $2GT $3');
     }
-    const twin = /TWIN|DUPLA SINC|DUPLO DENTE|DUPLA DENTADA|DOUBLE/.test(t);
+    const twin = /TWIN|DUPLA SINC|DUPLO DENTE|DUPLA DENTADA|DOUBLE|\bDUPLA\b|\bTP\b/.test(t);
     const largTexto = () => { const w = t.match(/(?:^|[;,\s])(?:L|LARG(?:URA)?)\s*[.:]?\s*(\d{1,3}(?:[.,]\d)?)\s*(?:MM)?(?![\d])/) || t.match(/\bX\s*(\d{1,3})\s*MM\b/); return w ? num(w[1]) : null; };
     const canais = () => { const w = t.match(/(\d{1,2})\s*(?:CANAIS|NERVURAS|RIBS|FRISOS|ESTRIAS)/) || t.match(/(?:CANAIS|NERVURAS|RIBS|FRISOS|ESTRIAS)\s*:?\s*(\d{1,2})/); return w ? +w[1] : null; };
     // micro-V primeiro (PL/PK/PJ...) — só se o texto falar em micro-V / poly-V ou usar perfil P?
@@ -430,8 +440,13 @@
     if (pf) { const b = t.match(/(\d{1,2})\s*BANDAS?|BANDAS?\s*:?\s*(\d{1,2})/); return { fam: 'v', perfil: 'PF' + pf[1] + 'M', comp: +pf[2], larg: pf[3] ? +pf[3] : (!ehCadastro && b ? +(b[1] || b[2]) : 1) }; }
     // T / AT colados (Contitech): 100T510 = 100 T5 10, 370T1010 = 370 T10 10
     pf = t.match(/(?:^|[^A-Z0-9])(\d{2,5})\s*(AT|T)(10|20|5|3|2)([1-9]\d{0,2})(?![A-Z0-9])/);
-    if (pf && !/EM V\b|POWER ?BAND/.test(t)) return { fam: 'sinc', tp: twin, perfil: pf[2] + pf[3], ger: null, comp: +pf[1], larg: +pf[4] };
-    if (!/EM V\b|POWER ?BAND|TRAPEZ/.test(t)) {
+    if (pf && !/EM V\b|POWER ?BAND/.test(t)) {
+      let c = +pf[1], w = +pf[4];
+      if (c <= 150 && w >= 150) [c, w] = [w, c];          // "25T10610": largura 25, comprimento 610
+      return { fam: 'sinc', tp: twin, perfil: pf[2] + pf[3], ger: null, comp: c, larg: w };
+    }
+    const sincTxt = /SINCRONI|DENTAD|DENTES|PASSO/.test(t);   // "PERFIL DO DENTE: TRAPEZOIDAL" é sincronizadora, não correia em V
+    if (!/EM V\b|POWER ?BAND/.test(t) && (!/TRAPEZ/.test(t) || sincTxt)) {
       let m = t.match(RX_SINC), comp, perfil, larg, tp;
       // perfil + "COMPRIMENTO n" + "LARGURA n" escritos por extenso
       const ce = !ehCadastro && t.match(/(?:^|[^A-Z])(?:COMPRIMENTO|COMPR|COMP)\s*[.:]?\s*(\d{2,5}(?:[.,]\d+)?)/);
@@ -505,7 +520,12 @@
     const p = parseCorreia(det, false);
     if (!p) return null;
     if (p.larg == null) return { p, cands: [], vizinhas: (cat.indiceCorreias().get(chaveCorreia(Object.assign({}, p, { larg: '*' }))) || []).slice() };
-    const cands = (cat.indiceCorreias().get(chaveCorreia(p)) || []).slice();
+    let cands = (cat.indiceCorreias().get(chaveCorreia(p)) || []).slice(); let viaGT = false;
+    // HTD (8M/14M...) sem a correia pronta: a GT/GTE do mesmo passo encaixa na mesma polia — antes de slab/LL
+    if (!cands.length && /^(3|5|8|14)M$/.test(p.perfil)) {
+      for (const pf of [p.perfil + 'GTE', p.perfil + 'GT']) cands = cands.concat(cat.indiceCorreias().get(chaveCorreia(Object.assign({}, p, { perfil: pf, ger: null }))) || []);
+      viaGT = cands.length > 0;
+    }
     // sem a largura pedida: devolve as outras larguras do mesmo perfil/comprimento como alternativas
     const vizinhas = () => (cat.indiceCorreias().get(chaveCorreia(Object.assign({}, p, { larg: '*' }))) || [])
       .slice().sort((a, b) => Math.abs(a._correia.larg - p.larg) - Math.abs(b._correia.larg - p.larg));
@@ -515,7 +535,7 @@
     const linha = (o) => (!marca && ctx && ctx._linhaCorreia) ? Math.min(3, ctx._linhaCorreia.get(up(o.familia)) || 0) : 0;
     const peso = (o) => (marca && o._marca === marca ? 4 : 0) + (pm && (o._marca || 'SEM MARCA') === pm ? 3 : 0) + linha(o) + (p.ger && o._correia.ger === p.ger ? 2 : 0) + (!p.ger && !o._correia.ger ? 1 : 0) + (o._marca === 'MELTING' ? 0.5 : 0);
     cands.sort((a, b) => peso(b) - peso(a));
-    return { p, cands, marca, mesmaMarca: !!marca && cands[0]._marca === marca, prefCliente: pm && (cands[0]._marca || 'SEM MARCA') === pm ? pm : null };
+    return { p, cands, marca, viaGT, mesmaMarca: !!marca && cands[0]._marca === marca, prefCliente: pm && (cands[0]._marca || 'SEM MARCA') === pm ? pm : null };
   }
 
   // ---------------- correias planas (Nitta / Mectrol cortadas sob medida) ----------------
@@ -1189,6 +1209,21 @@
     return { prod: null, base: bases[0] + cor, de, di, pa11 };
   }
 
+  // ---------------- ID Melting ou número NITTA citado pelo cliente ("CORREIA TRANSP 50MM MELTING/256740") ----------------
+  function idMeltingCitado(det, cat) {
+    const t = up(det); const tipo = (t.match(/^\s*(CORREIA|ESTEIRA|LENCOL|MANGUEIRA|MANGOTE|PERFIL|POLIA|CORDAO|TUBO)/) || [])[1];
+    if (!tipo) return null;
+    const larg = (t.match(/(?<![\d,.])(\d{2,4})\s*(?:X\s*\d|MM\b)/) || [])[1];
+    const casa = (o) => o && o.ativo && (new RegExp(tipo === 'CORREIA' ? 'CORREIA|NITTA|MECTROL|ESTEIRA|SGM' : tipo).test(o.d + ' ' + up(o.familia))) && (!larg || new RegExp('(^|[^0-9])' + larg + '([^0-9]|$)').test(o.d + ' ' + o.a));
+    for (const m of t.matchAll(/(?:MELTING\s*\/\s*|NITTA\s*\/?\s*)(\d{4,6})(?![\d,.])/g)) {
+      const n = m[1];
+      const o = cat.get(n); if (casa(o)) return { prod: o, n, como: 'ID' };
+      const nit = 'NITTA' + n.padStart(5, '0'); const c = cat.lista.find(z => comp(z.a).startsWith(nit) && casa(z));
+      if (c) return { prod: c, n, como: 'NITTA' };
+    }
+    return null;
+  }
+
   // ---------------- código do fabricante citado na descrição (20PM, 400SF, FFH04, 837BM...) ----------------
   const COD_RUIM = /^(\d+(MM|CM|M|MT|MTS|KG|G|V|VCA|VCC|W|KW|BAR|PSI|LBS|L|ML|PCS?|UN|HP|RPM|NM|A|MA)|M\d+(X[\d.,]+)?|\d+X\d*|[A-Z]\d|\d[A-Z]|LIB\d*|NR\d+|NBR\d+|DIN\d+|ISO\d+|SAE\d+\w*|ASTM\w*|AISI\d+|R\d{1,2}(AT)?|\d{1,2}SN|\d+(LBS|BAR)\w*|CF8M?|PN\d+|DN\d+|PG\d+|FIG\d+|IP\d+|CL\d+|CLASSE\d+|SCH\d+|N\d+|\d+TH|\d+[A-Z]?\/\d+.*|\d*R\d+[A-Z]*|\d+GR(AUS)?|A\d{3}[A-Z]*|AISI\w*|J\d{3,4}|\d+POL|\d*(BSP|NPT|UNF|JIC|ORFS|BSPP|BSPT|NPTF)\w*|\d+FPP|\d+FIOS|\d+(TRAMAS?|ESPIRAIS?)|SGM\d+|FTM\d+|\d+[LS]|\d+(MPA|KPA|LB|KGF|MCA|TON|GB|MB|TB|MAH|LM|CV)|\d+X\d+\w*)$/;
   function codigosFab(texto) {
@@ -1577,6 +1612,8 @@
       if (ok(cat.get(h.id))) return res(h.id, 'historico', 'alta', 'Mesmo código do cliente já vendido' + (h.cliente ? ' para ' + h.cliente : '') + (h.data ? ' (último pedido ' + h.data + ')' : ''));
     }
     const alternativas = [];
+    // 2b) ID Melting / número NITTA escrito na descrição do cliente
+    { const x = idMeltingCitado(det + ' ' + (ref || ''), cat); if (x) return res(x.prod.id, 'codigo-melting', 'media', (x.como === 'ID' ? 'ID Melting ' : 'Corte NITTA ') + x.n + ' citado na descrição do cliente'); }
     // 3a) kit SGM citado no REF ou na descrição
     const sgmM = (ref + ' ' + det).match(/\bSGM\s*[-:]?\s*0*(\d{3,6})\b/);
     if (sgmM && cat.porSgm) {
@@ -1664,7 +1701,7 @@
       }
     }
     // 4d) correias planas (cortadas sob medida)
-    if (P.regrasCorreia !== false && /CORREIA|ESTEIRA|LENCOL|BELT/.test(det)) {
+    if (P.regrasCorreia !== false && /CORREIA|ESTEIRA|LENCOL|BELT/.test(det) && !(/SINCRONI|DENTAD/.test(det) && parseCorreia(det + (ref ? ' ' + up(ref) : ''), false))) {
       const x = correiaPlanaRule(det + (ref ? ' REF ' + up(ref) : ''), cat);
       // código de outra marca -> equivalente Nitta (tabela de equivalência)
       const txEq = textoEquiv;
@@ -1702,7 +1739,7 @@
         const alts = x.cands.slice(1, 6).map(o => ({ id: o.id, score: null, recusa: o._marca ? 'marca ' + o._marca : 'outra opção' }));
         const desc = (x.p.tp ? 'TP ' : '') + x.p.comp + ' ' + x.p.perfil + (x.p.ger || '') + ' ' + x.p.larg;
         const conf = (x.mesmaMarca || x.prefCliente || (!x.marca && (x.cands.length === 1 || best._marca === 'MELTING'))) ? 'media' : 'baixa';
-        const motivo = 'Regra de correia (' + desc + ')' + (x.marca && !x.mesmaMarca ? ' — marca ' + x.marca + ' não encontrada, equivalente ' + (best._marca || 'sem marca') : '') + (x.prefCliente ? ' — marca que o cliente costuma comprar (' + x.prefCliente + ')' : !x.marca && x.cands.length > 1 ? (best._marca === 'MELTING' ? ' — linha Melting (' + x.cands.length + ' marcas no cadastro)' : ' — ' + x.cands.length + ' marcas no cadastro, conferir') : '');
+        const motivo = 'Regra de correia (' + desc + ')' + (x.viaGT ? ' — sem a HTD pronta: equivalente GT do mesmo passo (' + best.a + ')' : '') + (x.marca && !x.mesmaMarca ? ' — marca ' + x.marca + ' não encontrada, equivalente ' + (best._marca || 'sem marca') : '') + (x.prefCliente ? ' — marca que o cliente costuma comprar (' + x.prefCliente + ')' : !x.marca && x.cands.length > 1 ? (best._marca === 'MELTING' ? ' — linha Melting (' + x.cands.length + ' marcas no cadastro)' : ' — ' + x.cands.length + ' marcas no cadastro, conferir') : '');
         return res(best.id, 'regra-correia', conf, motivo, null, { alternativas: alts });
       }
       // correia sincronizadora sem pronta no cadastro: slab do mesmo comprimento cortado na largura (vendido por mm)
@@ -1814,7 +1851,7 @@
   const Motor = {
     deacc, up, comp, norm, tofrac, sizes, sideSpec, terminalRule, adapterRule, travas, threads, types, toks,
     Catalogo, Aprendizado, sugerir, medidasDescricaoOk, PADRAO, bitolaCliente,
-    conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule, parsePlana, correiaPlanaRule, agregarCortes, parseLL, agregarKits, agregarFtm, mangueiraRule, mangueiraLivre, continentalParaMelting, famMang, equivalenciaPlana, pneumaticaRule, tuboNylonRule, codigoFabricanteRule, codigosFab
+    conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule, parsePlana, correiaPlanaRule, agregarCortes, parseLL, agregarKits, agregarFtm, mangueiraRule, mangueiraLivre, continentalParaMelting, famMang, equivalenciaPlana, pneumaticaRule, tuboNylonRule, idMeltingCitado, codigoFabricanteRule, codigosFab
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = Motor;
   else root.Motor = Motor;
