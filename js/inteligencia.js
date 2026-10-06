@@ -562,7 +562,35 @@ const Intel = (function(){
         .sort((a, b) => String(a.data || '').localeCompare(String(b.data || '')))
         .forEach(v => ctx.historico.set(String(v.ref_cliente).trim(), { id: String(v.produto_id), data: v.data ? dataBR(v.data) : null, preco: v.preco_unit }));
     }
+    ctx.histDesc = histPorDescricao(contrato);
     return ctx;
+  }
+  // "o cliente escreveu X, vendemos Y": descrição da venda (complemento do pedido) -> produto mais vendido com ela.
+  // Vendas do próprio cliente do contrato valem mais; descrição que já virou produtos diferentes fica com o mais vendido.
+  let _histDescCache = null;
+  function histPorDescricao(contrato){
+    if (!S.vendas || !S.vendas.length) return null;
+    if (!_histDescCache || _histDescCache.n !== S.vendas.length){
+      const geral = new Map();
+      for (const v of S.vendas){
+        if (!v.descricao || !/^\d+$/.test(String(v.produto_id)) || /CANCEL/i.test(v.situacao || '')) continue;
+        const k = Motor.chaveDescHist(v.descricao); if (k.length < 8) continue;
+        const m = geral.get(k) || new Map(); const x = m.get(String(v.produto_id)) || { n: 0, data: null, vendas: [] };
+        x.n++; if (!x.data || String(v.data || '') > x.data) x.data = v.data || x.data; x.vendas.push(v); m.set(String(v.produto_id), x); geral.set(k, m);
+      }
+      _histDescCache = { n: S.vendas.length, geral };
+    }
+    const out = new Map();
+    for (const [k, m] of _histDescCache.geral){
+      let best = null;
+      for (const [id, x] of m){
+        const doCli = contrato ? x.vendas.some(v => Kpis.vendaDoCliente(contrato, v)) : false;
+        const sc = (doCli ? 1e6 : 0) + x.n;
+        if (!best || sc > best.sc) best = { sc, id, n: x.n, data: x.data ? dataBR(x.data) : null, doCliente: doCli, cliente: x.vendas[x.vendas.length - 1].cliente_nome };
+      }
+      out.set(k, best);
+    }
+    return out;
   }
   // vendas de qualquer cliente SIG com esses códigos de item (o mesmo cliente às vezes tem vários códigos no SIG)
   async function historicoPorCodigos(codigos){
@@ -1099,28 +1127,36 @@ const Intel = (function(){
           const pedido = pega(o, ['pedido_id', 'Pedido', 'Nº pedido', 'Numero pedido']);
           const prod = pega(o, ['idproduto', 'itens_id', 'Produto', 'ID produto', 'CODIGOPRODUTO']);
           if (pedido == null || prod == null) return;
+          // export de pedidos com "Complemento": descrição do cliente + "Ped.:… Ref.:<código do cliente> Item:…"
+          const compl = pega(o, ['Complemento']);
+          const refCompl = compl ? (String(compl).match(/Ref\.?\s*:\s*([^\s*]+)/i) || [])[1] : null;
+          const descCompl = compl ? String(compl).replace(/\s+(?:Ped\.?|Ref\.?|Item)\s*:.*$/i, '').trim() : null;
           const k = pedido + '|' + prod; const linha = (cont.get(k) || 0) + 1; cont.set(k, linha);
           todas.push({
             pedido: String(pedido).replace(/\.0+$/, ''), produto_id: String(prod).replace(/\.0+$/, ''), linha,
-            data: dataDeCelula(pega(o, ['databreped', 'data', 'Data emissão', 'Data pedido', 'Data', 'DATAEMISSAO'])),
+            data: dataDeCelula(pega(o, ['databreped', 'data', 'Data emissão', 'Data pedido', 'Data', 'DATAEMISSAO', 'Data Geração'])),
             cliente_codigo: pega(o, ['numcli', 'Cliente', 'Código cliente', 'Cod cliente', 'CODIGOCLIENTE']) != null ? String(pega(o, ['numcli', 'Cliente', 'Código cliente', 'Cod cliente', 'CODIGOCLIENTE'])).trim() : null,
-            cliente_nome: pega(o, ['fantasia', 'Nome cliente', 'Razão social', 'NOMECLIENTE']) ? Kpis.nomeNorm(pega(o, ['fantasia', 'Nome cliente', 'Razão social', 'NOMECLIENTE'])) : null,
-            descricao: pega(o, ['descricao', 'Descrição', 'APELIDOPRODUTO']) || null,
-            ref_cliente: pega(o, ['refere', 'Referência cliente', 'Ref cliente', 'REFERENCIACLIENTE']) != null ? String(pega(o, ['refere', 'Referência cliente', 'Ref cliente', 'REFERENCIACLIENTE'])).trim() : null,
-            quantidade: num(pega(o, ['qtd', 'Quantidade', 'QUANTIDADEORIGINAL'])), preco_unit: num(pega(o, ['preuni', 'Preço unitário', 'Preco unitario', 'Valor unitário', 'PRECO'])),
-            situacao: pega(o, ['sitped', 'Situação', 'SITUACAOPEDIDO']) || null
+            cliente_nome: pega(o, ['fantasia', 'Fantasia (Cliente)', 'Nome cliente', 'Razão social', 'NOMECLIENTE']) ? Kpis.nomeNorm(pega(o, ['fantasia', 'Fantasia (Cliente)', 'Nome cliente', 'Razão social', 'NOMECLIENTE'])) : null,
+            descricao: descCompl || pega(o, ['descricao', 'Descrição', 'APELIDOPRODUTO']) || null,
+            ref_cliente: refCompl || (pega(o, ['refere', 'Referência cliente', 'Ref cliente', 'REFERENCIACLIENTE']) != null ? String(pega(o, ['refere', 'Referência cliente', 'Ref cliente', 'REFERENCIACLIENTE'])).trim() : null),
+            quantidade: num(pega(o, ['qtd', 'Quantidade', 'QUANTIDADEORIGINAL', 'Qtde.Pedida'])), preco_unit: num(pega(o, ['preuni', 'Preço unitário', 'Preco unitario', 'Valor unitário', 'PRECO'])),
+            situacao: pega(o, ['sitped', 'Situação', 'SITUACAOPEDIDO', 'Desc.Situação']) || null
           });
         });
       }
       if (!todas.length){ st.textContent = 'Nenhuma venda encontrada — confira se é a exportação "relsitped" do SIG.'; return; }
       if (DB_ATIVO){
-        await emLotes(todas, 1000, async (l) => {
-          const { error } = await supabaseClient.from('vendas').upsert(l, { onConflict: 'pedido,produto_id,linha' }); if (error) throw error;
+        // linhas sem código do cliente vão sem a coluna: o upsert não apaga o ref_cliente que outra exportação já gravou
+        todas.forEach(v => { if (v.ref_cliente == null || v.ref_cliente === '' || v.ref_cliente === '(NULO)') delete v.ref_cliente; });
+        const comRef = todas.filter(v => 'ref_cliente' in v), semRef = todas.filter(v => !('ref_cliente' in v));
+        await emLotes(comRef.concat(semRef), 1000, async (l) => {
+          const grupos = [l.filter(v => 'ref_cliente' in v), l.filter(v => !('ref_cliente' in v))].filter(g => g.length);
+          for (const g of grupos){ const { error } = await supabaseClient.from('vendas').upsert(g, { onConflict: 'pedido,produto_id,linha' }); if (error) throw error; }
         }, (a, b) => { bar.style.width = (a / b * 100) + '%'; st.textContent = `Gravando vendas: ${a.toLocaleString('pt-BR')} de ${b.toLocaleString('pt-BR')}...`; });
         await carregarVendas();
       } else {
         const k = (v) => v.pedido + '|' + v.produto_id + '|' + v.linha;
-        const m = new Map(S.vendas.map(v => [k(v), v])); todas.forEach(v => m.set(k(v), v)); S.vendas = [...m.values()];
+        const m = new Map(S.vendas.map(v => [k(v), v])); todas.forEach(v => m.set(k(v), Object.assign({}, m.get(k(v)) || {}, v))); S.vendas = [...m.values()];
       }
       bar.style.width = '100%';
       const datas = todas.map(v => v.data).filter(Boolean).sort();

@@ -1667,6 +1667,10 @@
   // ---------------- função principal ----------------
   // item: {codCliente, descricao, ref}
   // ctx : {catalogo, depara: Map('cod'→id), historico: Map('cod'→{id,preco,data}), aprendizado, params}
+  // chave do histórico por descrição: "CORREIA SINCR. 860 T5 - 16 Ped.:553321888 Ref.:230895 Item:8" -> "CORREIA SINCR. 860 T5 16"
+  function chaveDescHist(s) {
+    return up(String(s || '').replace(/\s+(?:Ped\.?|Ref\.?|Item)\s*:.*$/i, '')).replace(/[^A-Z0-9\/.,]+/g, ' ').replace(/\s+/g, ' ').trim();
+  }
   function sugerir(item, ctx) {
     const cat = ctx.catalogo; const P = Object.assign({}, PADRAO, ctx.params || {});
     const tr = Object.assign({}, PADRAO.travas, (ctx.params || {}).travas || {});
@@ -1701,6 +1705,12 @@
     if (cod && ctx.historico && ctx.historico.has(cod)) {
       const h = ctx.historico.get(cod);
       if (ok(cat.get(h.id))) return res(h.id, 'historico', 'alta', 'Mesmo código do cliente já vendido' + (h.cliente ? ' para ' + h.cliente : '') + (h.data ? ' (último pedido ' + h.data + ')' : ''));
+    }
+    // 2a) mesma descrição já vendida (histórico de vendas: "o cliente escreveu X, vendemos Y") — do próprio cliente primeiro
+    if (ctx.histDesc && ctx.histDesc.size) {
+      const k = chaveDescHist(item.descricao);
+      const h = k.length >= 8 && /[A-Z]{3}/.test(k) && /\d/.test(k) ? ctx.histDesc.get(k) : null;
+      if (h && ok(cat.get(h.id))) return res(h.id, 'historico', h.doCliente ? 'alta' : 'media', 'Mesma descrição já vendida' + (h.doCliente ? ' para este cliente' : h.cliente ? ' (' + h.cliente + ')' : '') + (h.data ? ' — último pedido ' + h.data : '') + (h.n > 1 ? ' · ' + h.n + 'x' : ''));
     }
     const alternativas = [];
     // 2b) ID Melting / número NITTA escrito na descrição do cliente
@@ -1955,7 +1965,7 @@
   const Motor = {
     deacc, up, comp, norm, tofrac, sizes, sideSpec, terminalRule, adapterRule, travas, threads, types, toks,
     Catalogo, Aprendizado, sugerir, medidasDescricaoOk, PADRAO, bitolaCliente,
-    conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule, parsePlana, correiaPlanaRule, agregarCortes, parseLL, agregarKits, agregarFtm, mangueiraRule, mangueiraLivre, continentalParaMelting, parkerParaMelting, famMang, equivalenciaPlana, pneumaticaRule, tuboNylonRule, idMeltingCitado, codigoFabricanteRule, codigosFab
+    conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule, parsePlana, correiaPlanaRule, agregarCortes, parseLL, agregarKits, agregarFtm, mangueiraRule, mangueiraLivre, continentalParaMelting, parkerParaMelting, chaveDescHist, famMang, equivalenciaPlana, pneumaticaRule, tuboNylonRule, idMeltingCitado, codigoFabricanteRule, codigosFab
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = Motor;
   else root.Motor = Motor;
