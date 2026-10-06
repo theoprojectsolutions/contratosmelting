@@ -1079,14 +1079,39 @@
   // estilos de terminal: cruzamento com a norma ISO 12151 dos mesmos itens.
   const PARKER_MANG = { '372': ['4XP'], '426': ['C2ATH', 'AGR1'], '436': ['M2T'], '471': ['M2T', 'AGR2', 'MXT'], '601': ['C3H'], '721': ['4XH', 'EFG6K', 'EFG5K', '4XP'], '731': ['EFG6K', '4XH'], '811': ['C4H'],
     '797TC': ['EFG6K'], '471TC': ['M2T', 'AGR2'], '421SN': ['M2T', 'AGR1', 'C1T'], '797ST': ['EFG6K'], '487TC': ['AGR2', 'M2T', 'MXG4KXTP', 'M4K'], '471ST': ['M2T'], '472TC': ['M2T'], '387TC': ['M3K'],
-    '722TC': ['4XP', 'EFG5K', 'MXG4KXTP'], '301SN': ['M2T'], '482TC': ['M3K', 'AGR1'], '731TC': ['4XP', '4XH'], '421TC': ['AGR2', 'C1T', 'AGR1'], '351TC': ['M3K', 'AGR2'], '421FS': ['AGR2'], '462TC': ['M2T', 'AGR2'] };
+    '722TC': ['4XP', 'EFG5K', 'MXG4KXTP'], '301SN': ['M2T'], '482TC': ['M3K', 'AGR1'], '731TC': ['4XP', '4XH'], '421TC': ['AGR2', 'C1T', 'AGR1'], '351TC': ['M3K', 'AGR2'], '421FS': ['AGR2'], '462TC': ['M2T', 'AGR2'],
+    '722ST': ['4XP', 'EFG5K', 'MXG4KXTP'], '781': ['EFG6K', '4XH'], '791TC': ['EFG6K', '4XH'] };
+  const PARKER_MANG_DUVIDA = new Set(['781', '791TC', '722ST']);   // sem resposta da Melting nos books: família deduzida pela linha de terminal (espiral)
   // exceções por código+bitola (a resposta da Melting difere da família padrão)
   const PARKER_COD = { '721-12': 'EFG6K', '487TC-10': 'MXG4KXTP', '471TC-16': 'M3K', '487TC-16': 'EFG5K', '421SN-16': 'AGR1', '487TC-12': 'MXG4KXTP', '471TC-10': 'AGR2', '722TC-16': 'EFG5K', '421SN-4': 'AGR1', '471-10': 'AGR2', '482TC-8': 'AGR1', '421TC-20': 'C1T', '731TC-16': '4XH', '421TC-8': 'AGR1', '351TC-10': 'AGR2', '462TC-16': 'AGR2', '421TC-24': 'C1T' };
   const PARKER_TER = { '101': 'MP', '103': 'MJ', '106': 'FJX', '137': 'FJX45', '139': 'FJX90', '141': 'FJX90', '1JC': 'FFORX', '1JS': 'FFORX', '1J7': 'FFORX45', '1J9': 'FFORX90', '1J5': 'FFORX90', '1J1': 'FFORX90', '1J0': 'MFFOR',
     '115': 'FL', '117': 'FL45', '119': 'FL90', '116': 'FL', '189': 'FL90', '16A': 'FLH', '16F': 'FLH45', '16N': 'FLH90', '1XA': 'FLC', '1XF': 'FLC45', '1XN': 'FLC90',
     '1CA': 'FDLORX', '1C9': 'FDHORX', '192': 'FBSPORX', '1B2': 'FBSPORX90', '1D9': 'FBSPORX90', '1D0': 'FBSPORX',
+    '1CF': 'FDLORX90', '1CE': 'FDLORX45',
     FGRE: 'FJX', FG90: 'FJX90', FG45: 'FJX45', FGBRE: 'FBSPORX', FGB90: 'FBSPORX90', FPRE: 'FFORX', FP90: 'FFORX90', FP45: 'FFORX45', F61RE: 'FL', F6190: 'FL90', F6145: 'FL45', F62RE: 'FLH', F6290: 'FLH90', F6245: 'FLH45' };
   const PARKER_DUVIDA = /^(116|189|1CA|1C9|192|1B2|1D9|1D0|FP|F6|FGB)/;
+  // norma ISO 12151 / EN / SAE (books que trazem a norma no lugar do código Parker) -> código Parker equivalente
+  // (aprendido pelos itens que aparecem com os dois códigos nos books da Suzano)
+  const ISO_TER = [
+    [/ISO12151-?5-?SWS/, '106'], [/ISO12151-?5-?SWEL?-?90GL?/, '139'], [/ISO12151-?5-?SWE-?45G/, '137'], [/ISO12151-?5-?S-?AGJ/, '103'],
+    [/ISO12151-?1-?SWSB/, '1JC'], [/ISO12151-?1-?SWEM-?90GM/, '1J5'], [/ISO12151-?1-?SWEL-?90GL/, '1J1'], [/ISO12151-?1-?SWE-?90G/, '1J9'], [/ISO12151-?1-?SWE-?45G/, '1J7'], [/ISO12151-?1-?S-?SAEJ516/, '1J0'],
+    [/ISO12151-?3-?E-?L-?SFL-?90GL/, '189'], [/ISO12151-?3-?(?:S-?)?L-?SFL-?90G/, '119'], [/ISO12151-?3-?(?:S-?)?L-?SFL-?45G/, '117'], [/ISO12151-?3-?S-?L-?SFL/, '115'],
+    [/ISO12151-?3-?S-?SFS-?90GL?/, '16N'], [/ISO12151-?3-?S-?SFS-?45GL?/, '16F'], [/ISO12151-?3-?S-?S-?SFS/, '16A'],
+    [/ISO12151-?2-?SWS-?L-?DKOL/, '1CA'], [/ISO12151-?2-?SWE-?L-?DKOL-?90G/, '1CF'], [/ISO12151-?2-?SWE-?S-?DKOS-?90G/, '1C9'],
+    [/CAT-?FLANGE-?RT/, '1XA'], [/CAT-?FLANGE-?90G/, '1XN'], [/CAT-?FLANGE-?45G/, '1XF'], [/SAEJ476A/, '101'], [/BS5200-?A-?DKR/, '192']
+  ];
+  const ISO_MANG = [[/EN\s?857-?2SC/, '471TC'], [/EN\s?853-?2SN/, '421SN'], [/EN\s?853-?1SN/, '421SN'], [/EN\s?856-?4SH/, '721'], [/EN\s?856-?4SP/, '701'], [/SAE\s?100\s?R\s?1[05]|SAE10R15/, '731'],
+    [/SAE\s?100\s?R\s?17/, '482TC'], [/(?:SAE\s?)?100\s?R\s?18/, '487TC'], [/SAE\s?100\s?R\s?12/, '722TC'], [/SAE\s?100\s?R\s?3/, '601'], [/SAE\s?100\s?R\s?4/, '811'], [/ISO\s?18752-?DC/, '797TC']];
+  function isoParaParker(t) {
+    // terminal: ISO12151-5-SWS-6-4 / ISO12151-5-SWEL-90GL6-6 -> 10643-6-4 (rosca - bitola, mesma ordem do Parker)
+    t = t.replace(/(?<![A-Z0-9])((?:ISO\s?12151|CAT-?FLANGE|SAEJ476A|BS5200)[A-Z0-9-]*?)-?(\d{1,2})-(\d{1,2})(?![0-9])/g, (m, cod, a, b) => {
+      const c = cod.replace(/\s/g, ''); const e = ISO_TER.find(([rx]) => rx.test(c)); if (!e) return m;
+      return e[1] + '43-' + a + '-' + b;
+    });
+    // mangueira: EN857-2SC-6 -> 471TC-6
+    for (const [rx, p] of ISO_MANG) t = t.replace(new RegExp('(?<![A-Z0-9])(?:' + rx.source + ')-(\\d{1,2})(?![0-9-])', 'g'), p + '-$1');
+    return t;
+  }
   function parkerTerminais(t) {
     const out = [];
     for (const m of t.matchAll(/(?<![A-Z0-9-])(?:([26])(F[A-Z0-9]*?(?:RE|90|45))|([0-9][0-9A-Z]{2})(\d{2}))-(\d{1,2})-(\d{1,2})(?![0-9])/g)) {
@@ -1096,8 +1121,8 @@
     return out;
   }
   function parkerParaMelting(det, cat) {
-    const t = up(det).replace(/\s+/g, ' ');
-    const h = t.match(/(?<![A-Z0-9-])(\d{3}(?:TC|ST|SN|FS)?)-(\d{1,2})(?![0-9-])/);
+    const t = isoParaParker(up(det).replace(/\s+/g, ' '));
+    const h = t.match(/(?<![A-Z0-9-])(\d{3}(?:TC|ST|SN|FS)?)-(\d{1,2})(?:-[A-Z]{3})?(?![0-9-])/);
     const ters = parkerTerminais(t);
     const fs = h && (PARKER_MANG[h[1]] || PARKER_MANG[h[1].slice(0, 3)]);
     // código de mangueira solto só vale com contexto (mangueira/Parker) ou terminal Parker junto
@@ -1109,7 +1134,7 @@
     if (tt.length === 1 && !/OUTRA|OUTRO|PONTA LIVRE/.test(t) && (ters.length === 1)) tt.push(tt[0]);
     const comp = compCliente(t.replace(/(?<![A-Z0-9-])[0-9A-Z]+-\d{1,2}(?:-\d{1,2})?(?![0-9])/g, ' '));
     return { texto: 'MANGUEIRA ' + dash + ' ' + fam + ' ' + tt.map(x => dash + (x.espiral ? 'GS' : 'G') + x.td + x.T).join(' ') + (comp ? ' ' + comp + 'MM' : ''), dash, fam, ters: tt.length, codigo: h[0], origem: 'Parker',
-      duvida: tt.some(x => x.duvida) };
+      duvida: tt.some(x => x.duvida) || PARKER_MANG_DUVIDA.has(h[1]) };
   }
   // terminal Parker avulso -> terminal Melting do cadastro (linha GS para série espiral)
   function parkerTerminalAvulso(x, cat) {

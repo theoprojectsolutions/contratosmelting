@@ -439,9 +439,14 @@ const Intel = (function(){
   // RESPONDER PLANILHA
   // =====================================================================
   const CAMPOS = [
-    { k: 'cod', label: 'Código do item no cliente', alias: ['COD', 'CODIGO', 'COD CLIENTE', 'CODIGO CLIENTE', 'CODIGO SAP', 'MATERIAL', 'COD MATERIAL', 'CODIGO DO MATERIAL', 'ITEM CLIENTE', 'SKU', 'N MATERIAL', 'NUMERO DO MATERIAL'] },
+    { k: 'cod', label: 'Código do item no cliente', alias: ['COD', 'CODIGO', 'COD CLIENTE', 'NI', 'NI SUZANO', 'NI MATERIAL', 'CODIGO CLIENTE', 'CODIGO SAP', 'MATERIAL', 'COD MATERIAL', 'CODIGO DO MATERIAL', 'ITEM CLIENTE', 'SKU', 'N MATERIAL', 'NUMERO DO MATERIAL'] },
     { k: 'desc', label: 'Descrição', alias: ['DESCRICAO', 'DESCRICAO BREVE', 'DESCRICAO CURTA', 'TEXTO BREVE', 'DESC', 'BREVE', 'DESCRICAO DO MATERIAL', 'PRODUTO'] },
     { k: 'desc2', label: 'Descrição detalhada (opcional)', alias: ['DESCRICAO DETALHADA', 'DESCRICAO COMPLETA', 'DESCRICAO LONGA', 'TEXTO LONGO', 'DET', 'DETALHE', 'ESPECIFICACAO', 'DESCRICAO TECNICA'] },
+    // mangueira montada em colunas separadas (books técnicos: MANG / CT / T1 / T2) -> vira texto para o motor montar a FTM
+    { k: 'mang', label: 'Mangueira — código/norma (opcional)', alias: ['MANG', 'MANGUEIRA', 'COD MANGUEIRA', 'MANGUEIRA CODIGO', 'HOSE'] },
+    { k: 'ct', label: 'Comprimento da mangueira (opcional)', alias: ['CT', 'CT H', 'C T MM', 'C T', 'COMPRIMENTO', 'COMPRIMENTO MONTADA MM', 'COMPRIMENTO MONTADA', 'COMPRIMENTO MM'] },
+    { k: 'ta', label: 'Terminal A (opcional)', alias: ['T1', 'TERMINAL 1', 'TERMINAL A', 'TERM A', 'TERM 1'] },
+    { k: 'tb', label: 'Terminal B (opcional)', alias: ['T2', 'TERMINAL 2', 'TERMINAL B', 'TERM B', 'TERM 2'] },
     { k: 'marca', label: 'Fabricante / marca (opcional)', alias: ['FABRICANTE / MARCA', 'FABRICANTE', 'MARCA', 'FABRICANTE MARCA'] },
     { k: 'ref', label: 'REF / apelido Melting (opcional)', alias: ['REF', 'REFERENCIA', 'REFERENCIA MELTING', 'APELIDO', 'REF MELTING', 'MODELO'] },
     { k: 'un', label: 'Unidade (opcional)', alias: ['UN', 'UND', 'UNID', 'UNIDADE', 'UM', 'U.M.'] },
@@ -521,7 +526,16 @@ const Intel = (function(){
       const row = RP.matriz[i] || [];
       const d1 = g(row, 'desc'), d2 = g(row, 'desc2'), cod = g(row, 'cod'), ref = g(row, 'ref'), marca = g(row, 'marca');
       if (!d1 && !d2 && !cod) continue;
-      const descricao = [d1, d2, marca ? 'MARCA: ' + marca : null].filter(x => x != null && String(x).trim()).map(x => String(x).trim()).join(' · ');
+      // montagem em colunas: "MANGUEIRA 731-12 10673-12-12 13973-12-12 CT 1265" vem antes da descrição
+      const cel = (k) => { const v = g(row, k); return v == null ? '' : String(v).replace(/\s+/g, ' ').trim(); };
+      const mg = cel('mang'), ta = cel('ta'), tb = cel('tb'), ct = cel('ct');
+      const codigoOk = (v) => v && v.length <= 40 && /\d/.test(v) && !/CONTRATO|SIMILAR/i.test(v);
+      // terminal avulso com o código na coluna da mangueira (13943-12-12, ISO12151-5-SWS-6-6): vai sem "MANGUEIRA" e sem CT
+      const ehTerminal = (v) => /^(?:[0-9][0-9A-Z]{2}\d{2}|[26]F[A-Z0-9]+)-\d{1,2}-\d{1,2}\b|^(?:ISO\s?12151|CAT-?FLANGE|BS\s?5200|SAEJ476)/i.test(v);
+      const montagem = codigoOk(mg) && ehTerminal(mg) && !ta && !tb ? mg
+        : (codigoOk(mg) || codigoOk(ta) || codigoOk(tb))
+          ? ['MANGUEIRA', codigoOk(mg) ? mg : '', codigoOk(ta) ? ta : '', codigoOk(tb) ? tb : '', /\d/.test(ct) ? 'CT ' + ct : ''].filter(Boolean).join(' ') : null;
+      const descricao = [montagem, d1, d2, marca ? 'MARCA: ' + marca : null].filter(x => x != null && String(x).trim()).map(x => String(x).trim()).join(' · ');
       out.push({
         linhaPlanilha: i, linha: out.length + 1,
         cod_cliente: cod == null ? '' : String(cod).trim(), descricao_cliente: descricao,
