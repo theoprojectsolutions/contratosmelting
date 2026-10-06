@@ -896,7 +896,7 @@
     // terminais do cadastro pelo apelido-base
     this._ter = new Map();
     for (const o of this.lista) {
-      if (!/^\d{1,2}G\d/.test(o.a) && !/^\d{1,2}PCM/.test(o.a)) continue;
+      if (!/^\d{1,2}GS?\d/.test(o.a) && !/^\d{1,2}PCM/.test(o.a)) continue;
       const b = comp(o.a).replace(/SML.*$/, '');
       if (!this._ter.has(b)) this._ter.set(b, []);
       this._ter.get(b).push(o);
