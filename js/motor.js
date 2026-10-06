@@ -917,6 +917,18 @@
   };
   const marcaMang = (a) => (String(a).match(/SML-?([A-Z]+)/) || [, ''])[1];
   // marca de mangueira que o cliente costuma comprar (de-para + vendas dele)
+  // famílias de mangueira que o cliente já comprou, por bitola (6PROXT, FTM "10PROXT* ,9"...)
+  function famClienteMang(ctx, cat, dash) {
+    if (!ctx) return null;
+    if (!ctx._famCli) {
+      ctx._famCli = new Map();
+      const ids = [...(ctx.depara ? ctx.depara.values() : []), ...(ctx.historico ? [...ctx.historico.values()].filter(h => !h.geral).map(h => h.id) : [])];
+      for (const id of ids) { const p = cat.get(id); if (!p || !/MANG/.test(p.d)) continue; const x = famMang(String(p.a).replace(/\*.*$/, '').trim()); if (!x) continue;
+        const m = ctx._famCli.get(+x[1]) || {}; m[x[2]] = (m[x[2]] || 0) + 1; ctx._famCli.set(+x[1], m); }
+    }
+    const m = ctx._famCli.get(dash); if (!m) return null;
+    return Object.entries(m).sort((a, b) => b[1] - a[1]).map(x => x[0]);
+  }
   function prefMarcaMang(ctx, cat) {
     if (!ctx) return null;
     if (ctx._prefMarcaMang !== undefined) return ctx._prefMarcaMang;
@@ -988,6 +1000,7 @@
   const NORMA_CLI = [
     [/\bR\s?2\s?(?:AT)?\b|\b2\s?SN\b|\b2\s?TRAMAS?\b/, ['AGR2', 'C2AT', 'M2T']],
     [/\bR\s?1\s?(?:AT)?\b|\b1\s?SN\b|\b1\s?TRAMAS?\b/, ['AGR1', 'C1T']],
+    [/MEDIA PRESSAO|\bMED\.? PRESS/, ['AGR1', 'C1T']],             // "média pressão" no mercado = R1 / 1 trama
     [/\bR\s?17\b/, ['M3K', 'AGR2']],
     [/\bR\s?12\b|\b4\s?SP\b|\b4\s?ESPIRA/, ['EFG4K', 'EFG4KXLL', 'MXG4KXTP']],
     [/\bR\s?1[35]\b|\b4\s?SH\b|\b6\s?ESPIRA/, ['EFG6K', 'EFG5K']],
@@ -995,7 +1008,7 @@
     [/TEFLON|PTFE|\bR\s?14\b/, ['C14']]
   ];
   const TER_COD = /\b(FJX|FJ|FDLORX|FDHORX|FFORX|FBSPORX|MBSPP|MFFOR|FPX|MDL|MDH|MLSP|FLH|MJ|MP|FP)(90|45)?\b/;
-  const TER_KW = /TERMINA|\bTERMS?\b|\bPL\s?\d|PONTA LISA|FEMEA|\bFEM\b|MACHO|JIC|NPT|BSP|ORFS|DKO|FLANGE|BANJO|\bM\d{2}\s?X\s?[12]/;
+  const TER_KW = /TLMP|TERMINA|\bTERMS?\b|\bPL\s?\d|PONTA LISA|FEMEA|\bFEM\b|MACHO|JIC|NPT|BSP|ORFS|DKO|FLANGE|BANJO|\bM\d{2}\s?X\s?[12]/;
   const DN_MM = (v) => { let best = null, bd = 9; for (const [mm, ds] of DI_DASH) if (Math.abs(mm - v) < bd) { bd = Math.abs(mm - v); best = ds; } return bd <= 2 ? best : null; };
   function fracDe(s) {
     const m = s.match(/(\d+\.\d+\/\d+|\d\/\d+)/) || s.match(/(?<![\d,.])(\d(?:[.,]\d+)?)\s*(?:"|POL|'')/);
@@ -1011,7 +1024,7 @@
   }
   // um terminal descrito pelo cliente -> {T, td, ang}
   function terminalCliente(seg, dash) {
-    let s = seg.replace(/\bDK\s+O\b/g, 'DKO').replace(/DKO\s*(\d{1,2})\s*-?\s*([LS])\b/g, 'DKO$2$1').replace(/\bFG\b/g, 'FEMEA GIRAT').replace(/\bFEM\b\.?/g, 'FEMEA').replace(/GIRAT\w*|\bGIR\b\.?/g, 'GIRAT').replace(/DKO\s?([LS])\s*-?\s*(\d{1,2})\b/g, (m, a, b) => 'DKO' + b.padStart(2, '0') + a)
+    let s = seg.replace(/\bTLMP\s?-?\s?(\d{1,2})\b/g, 'PONTA LISA $1').replace(/\bDK\s+O\b/g, 'DKO').replace(/DKO\s*(\d{1,2})\s*-?\s*([LS])\b/g, 'DKO$2$1').replace(/\bFG\b/g, 'FEMEA GIRAT').replace(/\bFEM\b\.?/g, 'FEMEA').replace(/GIRAT\w*|\bGIR\b\.?/g, 'GIRAT').replace(/DKO\s?([LS])\s*-?\s*(\d{1,2})\b/g, (m, a, b) => 'DKO' + b.padStart(2, '0') + a)
       .replace(/TUBO\s?(\d{1,2})\s?([LS])\b/g, (m, a, b) => 'DKO' + a.padStart(2, '0') + b).replace(/37\s?(?:°|º|GR\w*)/g, 'JIC').replace(/24\s?(?:°|º|GR\w*)/g, '24GR');
     let ang = '';
     const a = s.match(/(?<![\d\/,.X])(90|45)\s*(?:°|º|GR\w*|G\b)?(?![\d\/,])/);
@@ -1106,7 +1119,7 @@
   }
   function mangueiraLivre(det, cat, ctx) {
     if (!cat._ftm) return null;
-    const t = up(det).replace(/(?<![\/\dA-Z.,])(\d)[\s-]+(\d\/\d+)/g, '$1.$2').replace(/\s+/g, ' ').trim();
+    const t = up(det).replace(/^\s*(?:ITEM\s*)?\d{1,3}\s*[-–—.):]\s*(?=[A-Z])/, '').replace(/(?<![\/\dA-Z.,])(\d)[\s-]+(\d\/\d+)/g, '$1.$2').replace(/\s+/g, ' ').trim();
     const fc = t.match(FAM_COD);
     if (!fc && !/^(MANG|FLEX)/.test(t)) return null;
     if (/JARDIM|INCENDIO|BOMBEIRO|PVC|SILICONE|CRISTAL|ASPIRA|SUCCAO|GAS\b|OXIGENIO|ACETILENO|AR COMPRIMIDO|PNEUMATIC|POLIURETANO|NYLON/.test(t)) return null;
@@ -1130,8 +1143,17 @@
       if (!dash && (m = h2.match(/^(?:MANG\w*|FLEXIVEL|FLEX)\.?\s+(?:HIDRAULICA\s+)?([1-3])\b(?![\/.,]|\s?(?:MM|MTS?|METROS?|M)\b)/))) dash = +m[1] * 16;
       const tc = t.match(/\b(\d{1,2})G\d/); if (!dash && tc) dash = +tc[1];
     }
-    if (!dash || dash < 3 || dash > 48) return null;
     const pend = [];
+    if (!dash && cat._ftm) {
+      // só o tubo: "TLMP 18", "PONTA LISA 18" -> bitola que a Melting mais monta com esse terminal (10G18MLSP)
+      const pl = t.match(/(?:TLMP|PONTA LISA(?: TUBO)?|\bPL)\s?-?\s?(\d{1,2})\b/);
+      if (pl) { let best = 0; for (const d of [4, 5, 6, 8, 10, 12, 16, 20, 24]) { const n = cat._ftm.tot[d + 'G' + +pl[1] + 'MLSP'] || 0; if (n > best) { best = n; dash = d; } } if (dash) pend.push('bitola da mangueira (assumida ' + dash + ', a mais montada com tubo ' + pl[1] + ')'); }
+      // só a rosca do terminal ("BSP BOLEADO 3/8"): mangueira da mesma medida
+      else if (corte) { const v = fracDe(t.slice(corte)); if (v && v <= 2) { dash = Math.round(v * 16); pend.push('bitola da mangueira (assumida = rosca ' + v * 16 + '/16)'); } }
+    }
+    if (!dash || dash < 3 || dash > 48) return null;
+    // família da norma que o cliente já compra nessa bitola vem primeiro
+    if (fams && fams.length > 1) { const fc2 = famClienteMang(ctx, cat, dash); if (fc2) { const k = fc2.find(f => fams.includes(f)); if (k) fams = [k].concat(fams.filter(f => f !== k)); } }
     if (!fams) {
       // sem norma: a construção mais montada nessa bitola
       const fu = cat._famPorDash && cat._famPorDash.get(dash);
@@ -1736,7 +1758,7 @@
       }
       const xc = conti && mangueiraLivre(conti.texto, cat, ctx);
       if (xc) { xc.conti = conti; if (conti.incompleto) xc.pend = (xc.pend || []).concat(['medida do terminal (código cortado no pedido, assumida = bitola)']); if (conti.ters < 2) { xc.avulsa = false; xc.pend = (xc.pend || []).concat(conti.ters ? ['terminal do outro lado'] : ['terminais (pedido sem os terminais)']); } }
-      const x = conti ? xc : sap ? mangueiraRule(det, cat, ctx) : (mangueiraLivre(det + (ref ? ' ' + up(ref) : ''), cat, ctx) || (/^MANGUEIRA/.test(det) && mangueiraRule(det, cat, ctx)));
+      const x = conti ? xc : sap ? (mangueiraRule(det, cat, ctx) || mangueiraLivre(det + (ref ? ' ' + up(ref) : ''), cat, ctx)) : (mangueiraLivre(det + (ref ? ' ' + up(ref) : ''), cat, ctx) || (/^MANGUEIRA/.test(det) && mangueiraRule(det, cat, ctx)));
       if (x && x.avulsa) {
         const comps = [{ papel: 'mangueira', id: x.mang.id, apelido: x.mang.a, qtd: x.comprimento ? Math.round(x.comprimento) / 1000 : null, un: 'm' }];
         return res(x.mang.id, 'regra-mangueira', 'media', 'Mangueira ' + x.fam + ' bitola ' + x.dash + ' (sem terminais)' + (x.comprimento ? ' — ' + (x.comprimento / 1000).toLocaleString('pt-BR') + ' m' : ''), null,
