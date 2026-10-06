@@ -1049,7 +1049,8 @@ const Intel = (function(){
   }
   function dataDeCelula(v){
     if (v == null || v === '') return null;
-    { const m = typeof v === 'string' && v.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s|$)/); if (m) return m[3] + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0'); }
+    // "00/00/0000" (data vazia do ERP) e datas impossíveis -> sem data (o banco recusa)
+    { const m = typeof v === 'string' && v.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s|$)/); if (m) return (+m[1] >= 1 && +m[1] <= 31 && +m[2] >= 1 && +m[2] <= 12 && +m[3] >= 1900) ? m[3] + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0') : null; }
     if (v instanceof Date) return isNaN(v) ? null : v.toISOString().slice(0, 10);
     if (typeof v === 'number' && v > 20000 && v < 80000) return new Date(Math.round((v - 25569) * 86400000)).toISOString().slice(0, 10);
     return paraDataISO(v);
@@ -1134,7 +1135,7 @@ const Intel = (function(){
           const k = pedido + '|' + prod; const linha = (cont.get(k) || 0) + 1; cont.set(k, linha);
           todas.push({
             pedido: String(pedido).replace(/\.0+$/, ''), produto_id: String(prod).replace(/\.0+$/, ''), linha,
-            data: dataDeCelula(pega(o, ['databreped', 'data', 'Data emissão', 'Data pedido', 'Data', 'DATAEMISSAO', 'Data Geração'])),
+            data: dataDeCelula(pega(o, ['databreped', 'data', 'Data emissão', 'Data pedido', 'Data', 'DATAEMISSAO', 'Data Geração'])) || dataDeCelula(pega(o, ['Data Entrega', 'DATAENTREGA'])),
             cliente_codigo: pega(o, ['numcli', 'Cliente', 'Código cliente', 'Cod cliente', 'CODIGOCLIENTE']) != null ? String(pega(o, ['numcli', 'Cliente', 'Código cliente', 'Cod cliente', 'CODIGOCLIENTE'])).trim() : null,
             cliente_nome: pega(o, ['fantasia', 'Fantasia (Cliente)', 'Nome cliente', 'Razão social', 'NOMECLIENTE']) ? Kpis.nomeNorm(pega(o, ['fantasia', 'Fantasia (Cliente)', 'Nome cliente', 'Razão social', 'NOMECLIENTE'])) : null,
             descricao: descCompl || pega(o, ['descricao', 'Descrição', 'APELIDOPRODUTO']) || null,
