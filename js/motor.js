@@ -844,7 +844,7 @@
 
   // apelido da mangueira -> [_, bitola, família]: 8AGR2, 12EFG4KSML-TRANSPOWER, 164XHXCTN (4SH: família 4XH)
   function famMang(a) {
-    const x = String(a || '').match(/^(\d{1,2})(4XH)/); if (x) return x;
+    const x = String(a || '').match(/^(\d{1,2})(4X[HP])/); if (x) return x;
     return String(a || '').match(/^(\d{1,2})([A-Z][A-Z0-9]*?)(SML|-|$)/);
   }
   // relpro_ftm (linhas como objetos) -> resumo compacto para o motor
@@ -984,7 +984,7 @@
   // "MANG. R2 1/2 X 1,5M C/ TERM. FEMEA JIC 3/4 GIRATORIO RETO E 90", "FLEXIVEL 3/8 2SN DKOL 12 X DKOL 12 90 1200MM",
   // "8AGR2 8G8FJX 8G8FJX90 1000MM", "MANGUEIRA 1/2 1 TRAMA TERMINAIS NPT 1/2 MACHO"...
   // Separa mangueira / terminais / comprimento, monta no padrão Melting e lista o que falta o cliente informar.
-  const FAM_COD = /\b(\d{1,2})\s?-?\s?(4XH|AGR1|AGR2|C1TH|C1T|C2AT|M2T|M3K|M4K|EFG4KXLL|EFG4K|EFG5K|EFG6K|C14|C3H|C4H|C5C|C6H|J2AT|MXG4KXTP)\b/;
+  const FAM_COD = /\b(\d{1,2})\s?-?\s?(4XH|4XP|C2ATH|MXT|EFG6KXLL|AGR1|AGR2|C1TH|C1T|C2AT|M2T|M3K|M4K|EFG4KXLL|EFG4K|EFG5K|EFG6K|C14|C3H|C4H|C5C|C6H|J2AT|MXG4KXTP)\b/;
   const NORMA_CLI = [
     [/\bR\s?2\s?(?:AT)?\b|\b2\s?SN\b|\b2\s?TRAMAS?\b/, ['AGR2', 'C2AT', 'M2T']],
     [/\bR\s?1\s?(?:AT)?\b|\b1\s?SN\b|\b1\s?TRAMAS?\b/, ['AGR1', 'C1T']],
@@ -1002,7 +1002,7 @@
     if (!m) return null; return /\//.test(m[1]) ? tofrac(m[1].replace('.', ' ')) : Number(m[1].replace(',', '.'));
   }
   function compCliente(t) {
-    let m = t.match(/\b(?:COMPRIMENTO|COMPR?|L|C)\s?[.:=]?\s*(?:TOTAL\s*)?:?\s*(\d+(?:[.,]\d+)?)\s*(MM|MTS?|METROS?|M|CM)?\b/);
+    let m = t.match(/\b(?:COMPRIMENTO|COMPR?|CT|L|C)\s?[.:=]?\s*(?:TOTAL\s*)?:?\s*(\d+(?:[.,]\d+)?)\s*(MM|MTS?|METROS?|M|CM)?\b/);
     if (!m) m = t.match(/(?<![\d\/.,])(\d+(?:[.,]\d+)?)\s*(MM|MTS?|METROS?|CM|M)\b(?!\s?\d)/);
     if (!m) { const x = t.match(/\bX\s*(\d{3,5})\s*$/); if (x) return +x[1]; return null; }
     let v = Number(m[1].replace(/\.(?=\d{3}\b)/, '').replace(',', '.')); const u = m[2] || (v < 100 ? 'M' : 'MM');
@@ -1060,6 +1060,50 @@
     let comp = null; if (cm) { comp = Number(cm[1].replace(/\.(?=\d{3}\b)/g, '')); if (cm[2] === 'M' && comp < 100) comp *= 1000; }
     return { texto: 'MANGUEIRA ' + dash + ' ' + fam + ' ' + ters.join(' ') + (comp ? ' ' + comp + 'MM' : ''), dash, fam, ters: ters.length, codigo: h[0], incompleto };
   }
+  // código Parker (471TC-6 + 10643-6-6 / 1JC43-8-8 / 13943-12-12) ou do fornecedor anterior (2FGRE-8-8, 6FG90-16-16)
+  // -> padrão Melting ("MANGUEIRA 6 M2T 6G6FJX 6G6FJX 1000MM"), lido depois pelo mangueiraLivre.
+  // Famílias: o que a Melting respondeu nos books de mangueira da Suzano (código Parker x apelido enviado);
+  // estilos de terminal: cruzamento com a norma ISO 12151 dos mesmos itens.
+  const PARKER_MANG = { '372': ['4XP'], '426': ['C2ATH', 'AGR1'], '436': ['M2T'], '471': ['M2T', 'AGR2', 'MXT'], '601': ['C3H'], '721': ['4XH', 'EFG6K', 'EFG5K', '4XP'], '731': ['EFG6K', '4XH'], '811': ['C4H'],
+    '797TC': ['EFG6K'], '471TC': ['M2T', 'AGR2'], '421SN': ['M2T', 'AGR1', 'C1T'], '797ST': ['EFG6K'], '487TC': ['AGR2', 'M2T', 'MXG4KXTP', 'M4K'], '471ST': ['M2T'], '472TC': ['M2T'], '387TC': ['M3K'],
+    '722TC': ['4XP', 'EFG5K', 'MXG4KXTP'], '301SN': ['M2T'], '482TC': ['M3K', 'AGR1'], '731TC': ['4XP', '4XH'], '421TC': ['AGR2', 'C1T', 'AGR1'], '351TC': ['M3K', 'AGR2'], '421FS': ['AGR2'], '462TC': ['M2T', 'AGR2'] };
+  // exceções por código+bitola (a resposta da Melting difere da família padrão)
+  const PARKER_COD = { '721-12': 'EFG6K', '487TC-10': 'MXG4KXTP', '471TC-16': 'M3K', '487TC-16': 'EFG5K', '421SN-16': 'AGR1', '487TC-12': 'MXG4KXTP', '471TC-10': 'AGR2', '722TC-16': 'EFG5K', '421SN-4': 'AGR1', '471-10': 'AGR2', '482TC-8': 'AGR1', '421TC-20': 'C1T', '731TC-16': '4XH', '421TC-8': 'AGR1', '351TC-10': 'AGR2', '462TC-16': 'AGR2', '421TC-24': 'C1T' };
+  const PARKER_TER = { '101': 'MP', '103': 'MJ', '106': 'FJX', '137': 'FJX45', '139': 'FJX90', '141': 'FJX90', '1JC': 'FFORX', '1JS': 'FFORX', '1J7': 'FFORX45', '1J9': 'FFORX90', '1J5': 'FFORX90', '1J1': 'FFORX90', '1J0': 'MFFOR',
+    '115': 'FL', '117': 'FL45', '119': 'FL90', '116': 'FL', '189': 'FL90', '16A': 'FLH', '16F': 'FLH45', '16N': 'FLH90', '1XA': 'FLC', '1XF': 'FLC45', '1XN': 'FLC90',
+    '1CA': 'FDLORX', '1C9': 'FDHORX', '192': 'FBSPORX', '1B2': 'FBSPORX90', '1D9': 'FBSPORX90', '1D0': 'FBSPORX',
+    FGRE: 'FJX', FG90: 'FJX90', FG45: 'FJX45', FGBRE: 'FBSPORX', FGB90: 'FBSPORX90', FPRE: 'FFORX', FP90: 'FFORX90', FP45: 'FFORX45', F61RE: 'FL', F6190: 'FL90', F6145: 'FL45', F62RE: 'FLH', F6290: 'FLH90', F6245: 'FLH45' };
+  const PARKER_DUVIDA = /^(116|189|1CA|1C9|192|1B2|1D9|1D0|FP|F6|FGB)/;
+  function parkerTerminais(t) {
+    const out = [];
+    for (const m of t.matchAll(/(?<![A-Z0-9-])(?:([26])(F[A-Z0-9]*?(?:RE|90|45))|([0-9][0-9A-Z]{2})(\d{2}))-(\d{1,2})-(\d{1,2})(?![0-9])/g)) {
+      const est = m[2] || m[3], T = PARKER_TER[est]; if (!T) continue;
+      out.push({ codigo: m[0], T, td: +m[5], hd: +m[6], espiral: m[4] ? /^7/.test(m[4]) : m[1] === '6', duvida: PARKER_DUVIDA.test(est) });
+    }
+    return out;
+  }
+  function parkerParaMelting(det, cat) {
+    const t = up(det).replace(/\s+/g, ' ');
+    const h = t.match(/(?<![A-Z0-9-])(\d{3}(?:TC|ST|SN|FS)?)-(\d{1,2})(?![0-9-])/);
+    const ters = parkerTerminais(t);
+    const fs = h && (PARKER_MANG[h[1]] || PARKER_MANG[h[1].slice(0, 3)]);
+    // código de mangueira solto só vale com contexto (mangueira/Parker) ou terminal Parker junto
+    if (!fs || !(ters.length || /MANG|FLEX|HOSE|PARKER/.test(t))) return ters.length ? { soTerminais: ters } : null;
+    const dash = +h[2];
+    const fs2 = [PARKER_COD[h[1] + '-' + dash]].concat(fs).filter(Boolean);
+    const fam = (cat && cat._mang && fs2.find(f => (cat._mang.get(dash + '|' + f) || []).length)) || fs2[0];
+    const tt = ters.filter(x => x.hd === dash).slice(0, 2);
+    if (tt.length === 1 && !/OUTRA|OUTRO|PONTA LIVRE/.test(t) && (ters.length === 1)) tt.push(tt[0]);
+    const comp = compCliente(t.replace(/(?<![A-Z0-9-])[0-9A-Z]+-\d{1,2}(?:-\d{1,2})?(?![0-9])/g, ' '));
+    return { texto: 'MANGUEIRA ' + dash + ' ' + fam + ' ' + tt.map(x => dash + (x.espiral ? 'GS' : 'G') + x.td + x.T).join(' ') + (comp ? ' ' + comp + 'MM' : ''), dash, fam, ters: tt.length, codigo: h[0], origem: 'Parker',
+      duvida: tt.some(x => x.duvida) };
+  }
+  // terminal Parker avulso -> terminal Melting do cadastro (linha GS para série espiral)
+  function parkerTerminalAvulso(x, cat) {
+    const bases = (x.espiral ? ['GS', 'G'] : ['G', 'GS']).map(g => x.hd + g + x.td + x.T);
+    for (const b of bases) { const l = (cat._ter && cat._ter.get(b) || []).filter(o => !/INOX/.test(o.a)).sort((p, q) => (/MODELO|MANG|RYCO|LONGO/.test(p.a) ? 1 : 0) - (/MODELO|MANG|RYCO|LONGO/.test(q.a) ? 1 : 0)); if (l.length) return { prod: l[0], apelido: b }; }
+    return { prod: null, apelido: bases[0] };
+  }
   function mangueiraLivre(det, cat, ctx) {
     if (!cat._ftm) return null;
     const t = up(det).replace(/(?<![\/\dA-Z.,])(\d)[\s-]+(\d\/\d+)/g, '$1.$2').replace(/\s+/g, ' ').trim();
@@ -1113,15 +1157,15 @@
       }
       // mangueiras espiraladas (4SP/4SH/R12/R13) usam terminal da linha GS
       let b = dash + 'G' + x.td + x.T + x.ang; let l = cat._ter.get(b) || [];
-      if (/^EFG|^MXG|^M4K/.test(fam)) { const bs = dash + 'GS' + x.td + x.T + x.ang; const ls = cat._ter.get(bs) || []; if (ls.length) { b = bs; l = ls; } }
+      if (x.gs || /^EFG|^MXG|^M4K/.test(fam)) { const bs = dash + 'GS' + x.td + x.T + x.ang; const ls = cat._ter.get(bs) || []; if (ls.length) { b = bs; l = ls; } }
       const inox = /INOX|AISI|316|304/.test(t);
       const o = (inox ? l.find(z => /INOX/.test(z.a)) : l.find(z => !/INOX/.test(z.a))) || null;
       return o ? { prod: o, apelido: b, x } : { prod: null, apelido: b, x };
     };
     // terminais já no padrão Melting (8G12FJX90)
-    for (const m of t.matchAll(/\b(\d{1,2})G(\d{1,2}(?:,\d)?)([A-Z]+?)(90|45)?(?:SML\w*)?(?=\s|$|[;,+])/g)) {
+    for (const m of t.matchAll(/\b(\d{1,2})G(S?)(\d{1,2}(?:,\d)?)([A-Z]+?)(90|45)?(?:SML\w*)?(?=\s|$|[;,+])/g)) {
       if (+m[1] !== dash) continue;
-      ters.push(achar({ T: m[3], td: m[2], ang: m[4] || '' }));
+      ters.push(achar({ T: m[4], td: m[3], ang: m[5] || '', gs: !!m[2] }));
     }
     if (!ters.length && resto) {
       const segs = resto.replace(/^(?:C\/|COM)\s*/, '').split(/\s(?:X|E|\/|\+|-)\s|;|\+|\bLADO\s?[AB12]\s?:?|\bPONTA\s?[AB12]\s?:?|\bOUTRA PONTA\b|\bOUTRO LADO\b|\bTERMINAL\s?[AB12]\s?:?/).map(s => s.trim()).filter(Boolean);
@@ -1676,7 +1720,20 @@
     if (P.regrasMangueira !== false) {
       // descrição SAP estruturada (BITOLA:, TERMINAL A:, NORMA:...) -> regra SAP; texto livre -> parser do cliente
       const sap = /^MANGUEIRA/.test(det) && /BITOLA|DIAMETRO|TERMINAL\s?\(?[AB]\)?\s?:|NORMA\s?:|PRESSAO|;/.test(det);
-      const conti = continentalParaMelting(det + ' ' + (ref || ''), cat);
+      let conti = continentalParaMelting(det + ' ' + (ref || ''), cat);
+      if (!conti) {
+        const pk = parkerParaMelting(det + ' ' + (ref || ''), cat);
+        if (pk && pk.soTerminais) {
+          // terminal Parker avulso (10643-6-6): um só código no item
+          if (pk.soTerminais.length === 1) { const x = pk.soTerminais[0], o = parkerTerminalAvulso(x, cat);
+            if (o.prod) {
+              // item Parker com o mesmo código no cadastro (10648-6-6-SA): fica como alternativa
+              const k = x.codigo.replace(/-/g, ''), alt = [];
+              for (const [c, l] of cat.indiceCodigos()) if (c.startsWith(k) && !/^\d/.test(c.slice(k.length))) for (const p of l) if (p.id !== o.prod.id && !alt.some(z => z.id === p.id)) alt.push({ id: p.id, score: null, recusa: 'mesmo código Parker no cadastro (' + p.a + ')' });
+              return res(o.prod.id, 'regra-mangueira', x.duvida ? 'baixa' : 'media', 'Terminal Parker ' + x.codigo + ' → ' + o.prod.a + (x.duvida ? ' — estilo a conferir' : ''), null, { alternativas: alt.slice(0, 3) });
+            } }
+        } else if (pk) conti = pk;
+      }
       const xc = conti && mangueiraLivre(conti.texto, cat, ctx);
       if (xc) { xc.conti = conti; if (conti.incompleto) xc.pend = (xc.pend || []).concat(['medida do terminal (código cortado no pedido, assumida = bitola)']); if (conti.ters < 2) { xc.avulsa = false; xc.pend = (xc.pend || []).concat(conti.ters ? ['terminal do outro lado'] : ['terminais (pedido sem os terminais)']); } }
       const x = conti ? xc : sap ? mangueiraRule(det, cat, ctx) : (mangueiraLivre(det + (ref ? ' ' + up(ref) : ''), cat, ctx) || (/^MANGUEIRA/.test(det) && mangueiraRule(det, cat, ctx)));
@@ -1694,7 +1751,7 @@
         const resumo = comps.map(c => (c.papel === 'mangueira' && c.qtd ? c.qtd.toLocaleString('pt-BR') + ' m ' : '') + c.apelido).join(' + ');
         const conf = x.porNorma && !faltam && !(x.pend || []).some(p => /norma/.test(p)) ? 'media' : 'baixa';
         const nota = x.ftm ? (String(x.ftm[0]).startsWith('~') ? ' — já montada antes como FTM ' + String(x.ftm[0]).slice(1) + ' (outro comprimento)' : ' — igual à FTM ' + x.ftm[0]) : '';
-        if (x.conti) return res(x.mang.id, 'regra-mangueira', x.pend.length ? 'baixa' : 'media', 'Código ' + x.conti.codigo + ' (Continental) → ' + resumo + nota + (faltam ? ' — terminal a conferir' : '') + (x.pend.length ? ' — pedir ao cliente: ' + x.pend.join(', ') : ''), null,
+        if (x.conti) return res(x.mang.id, 'regra-mangueira', x.pend.length || x.conti.duvida ? 'baixa' : 'media', 'Código ' + x.conti.codigo + ' (' + (x.conti.origem || 'Continental') + ') → ' + resumo + nota + (faltam ? ' — terminal a conferir' : '') + (x.pend.length ? ' — pedir ao cliente: ' + x.pend.join(', ') : ''), null,
           { componentes: comps, ftm: x.ftm ? String(x.ftm[0]).replace('~', '') : null, alternativas: x.altsM.map(o => ({ id: o.id, score: null, recusa: 'outra mangueira ' + x.fam })) });
         return res(x.mang.id, 'regra-mangueira', conf, 'Montagem: ' + resumo + nota + (faltam ? ' — terminal a conferir' : '') + (x.pend && x.pend.length ? ' — pedir ao cliente: ' + x.pend.join(', ') : ''), null,
           { componentes: comps, ftm: x.ftm ? String(x.ftm[0]).replace('~', '') : null, alternativas: x.altsM.map(o => ({ id: o.id, score: null, recusa: 'outra mangueira ' + x.fam })) });
@@ -1851,7 +1908,7 @@
   const Motor = {
     deacc, up, comp, norm, tofrac, sizes, sideSpec, terminalRule, adapterRule, travas, threads, types, toks,
     Catalogo, Aprendizado, sugerir, medidasDescricaoOk, PADRAO, bitolaCliente,
-    conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule, parsePlana, correiaPlanaRule, agregarCortes, parseLL, agregarKits, agregarFtm, mangueiraRule, mangueiraLivre, continentalParaMelting, famMang, equivalenciaPlana, pneumaticaRule, tuboNylonRule, idMeltingCitado, codigoFabricanteRule, codigosFab
+    conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule, parsePlana, correiaPlanaRule, agregarCortes, parseLL, agregarKits, agregarFtm, mangueiraRule, mangueiraLivre, continentalParaMelting, parkerParaMelting, famMang, equivalenciaPlana, pneumaticaRule, tuboNylonRule, idMeltingCitado, codigoFabricanteRule, codigosFab
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = Motor;
   else root.Motor = Motor;

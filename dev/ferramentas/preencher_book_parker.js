@@ -42,7 +42,7 @@ function mangueira(code) {
 // estilos Parker confirmados pelo cruzamento com a norma ISO 12151 dos mesmos NIs (livro de 948 itens)
 const ESTILO = { '101': 'MP', '103': 'MJ', '106': 'FJX', '137': 'FJX45', '139': 'FJX90', '141': 'FJX90', '1JC': 'FFORX', '1JS': 'FFORX', '1J7': 'FFORX45', '1J9': 'FFORX90', '1J5': 'FFORX90', '1J1': 'FFORX90', '1J0': 'MFFOR',
   '115': 'FL', '117': 'FL45', '119': 'FL90', '116': 'FL', '189': 'FL90', '16A': 'FLH', '16F': 'FLH45', '16N': 'FLH90', '1XA': 'FLC', '1XF': 'FLC45', '1XN': 'FLC90',
-  '1CA': 'FDLORX', '1C9': 'FDLORX90', '192': 'FBSPORX', '1B2': 'FBSPORX', '1D9': 'FBSPORX90', '1D0': 'FBSPORX',
+  '1CA': 'FDLORX', '1C9': 'FDHORX', '192': 'FBSPORX', '1B2': 'FBSPORX90', '1D9': 'FBSPORX90', '1D0': 'FBSPORX',
   // código próprio do fornecedor anterior (livro de 1010): FG = fêmea giratória JIC, FGB = fêmea BSP, FP = face plana (ORFS), F61 = flange cód. 61
   'FGRE': 'FJX', 'FG90': 'FJX90', 'FG45': 'FJX45', 'FGBRE': 'FBSPORX', 'FGB90': 'FBSPORX90', 'FPRE': 'FFORX', 'FP90': 'FFORX90', 'FP45': 'FFORX45', 'F61RE': 'FL', 'F6190': 'FL90', 'F6145': 'FL45', 'F62RE': 'FLH', 'F6290': 'FLH90', 'F6245': 'FLH45' };
 const DUVIDA = new Set(['116', '189', '1CA', '1C9', '192', '1B2', '1D9', '1D0', 'FPRE', 'FP90', 'FP45', 'F61RE', 'F6190', 'F6145', 'F62RE', 'F6290', 'F6245', 'FGBRE', 'FGB90']);
