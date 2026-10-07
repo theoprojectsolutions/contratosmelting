@@ -178,16 +178,9 @@
     const female = t.startsWith('TERMINAL FEM');
     const spec = sideSpec((female ? 'FEMEA GIRATORIA ' : 'MACHO ') + r[1] + (ang ? ' ' + ang : '') +
       (/ORFS|FACE|SEAL-LOK|SEAL LOK/.test(t) ? ' SEDE PLANA' : ''), t, hd, null);
-    if (spec && /^(MJ|FJX)$/.test(spec.T) && /UNF|JIC/.test(s) && fr) spec.td = nearest(JIC, frac(fr)) || spec.td;   // "JIC UNF 3/4" = rosca 3/4 UNF (-8)
     if (!spec || !spec.T || !spec.td) return null;
-    if (spec.T === 'FBSPORX' && /JIC/.test(s)) spec.T = 'FBSPPXJIC';   // rosca BSP com sede JIC 37°
-    const mt = s.match(/\bM\s?(\d{2})\b/);
-    if (mt && /^(MD|FD)/.test(spec.T)) { const th = +mt[1]; const S = DINS[th] === spec.td, L = DINL[th] === spec.td;
-      if (!S && !L) return null;   // rosca x tubo fora da DIN (ex.: M34 TB25): não monta
-      if (S && !L) spec.T = spec.T.replace(/^MDL$/, 'MDH').replace(/^FDLORX$/, 'FDHORX'); else if (L && !S) spec.T = spec.T.replace(/^MDH$/, 'MDL').replace(/^FDHORX$/, 'FDLORX'); }
     const a = spec.ang ? String(spec.ang) : '';
-    const base = `${hd}G${spec.td}${spec.T}${a}`;
-    const codes = /INOX|I\s?316|AISI/.test(t) ? [base + 'SMLINOX', base + 'INOX', base + 'SMLINOX316', base + 'SML', base] : [base + 'SML', base];
+    const codes = [`${hd}G${spec.td}${spec.T}${a}SML`, `${hd}G${spec.td}${spec.T}${a}`];
     for (const c of codes) { const id = lookup(c); if (id) return { id, apelido: c }; }
     return null;
   }
