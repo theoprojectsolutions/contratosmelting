@@ -22,10 +22,8 @@ const PARAMS_PADRAO = {
     travas: { material: true, rosca: true, tipo: true, medidas: true }
   },
   ia: {
-    ativa: false,              // usa IA para itens sem resposta
-    loteItens: 8,              // itens por chamada
-    puter: false,              // true = IA pelo Puter.js no navegador (login Puter de cada usuário, sem chave/servidor); false = função "responder-itens" do Supabase
-    modeloPuter: ''            // vazio = modelo padrão do Puter
+    ativa: false,              // usa a função "responder-itens" (Claude) para itens sem resposta
+    loteItens: 8               // itens por chamada
   }
 };
 

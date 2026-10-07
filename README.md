@@ -159,8 +159,5 @@ supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
 supabase functions deploy responder-itens
 ```
 
-**Alternativa sem chave de API (Puter.js):** em Parâmetros → IA, ligue "Usar Puter.js". A IA passa a rodar no navegador: cada usuário entra com a própria conta Puter (o uso fica por conta dela) e não é preciso publicar a função nem guardar chave. As descrições dos itens passam pelos servidores do Puter.
-
-
 Depois ligue em **Parâmetros → IA → Usar IA para itens sem resposta**. A chave
 fica só no servidor do Supabase e nunca vai para o navegador.
