@@ -837,7 +837,7 @@ const Intel = (function(){
     const paraIA = RP.itens.filter(i => !i.produto_id || i.confianca === 'baixa').length;
     iaBtn.hidden = !(PARAMS.ia && PARAMS.ia.ativa);
     iaBtn.textContent = `Pedir à IA (${paraIA})`;
-    iaBtn.disabled = !paraIA || !DB_ATIVO;
+    iaBtn.disabled = !paraIA || (!DB_ATIVO && !usaPuter());
     $('rp-salvar').disabled = !RP.contratoId && !$('rp-contrato').value;
     const dica = $('rp-dica-codigos');
     if (dica){
@@ -933,9 +933,90 @@ const Intel = (function(){
     renderResultado();
   }
 
-  // ---------- IA (Claude via função do Supabase) ----------
+  // ---------- IA: função do Supabase (Claude com chave no servidor) ou Puter.js (no navegador, conta Puter do usuário) ----------
+  const usaPuter = () => !!(PARAMS.ia && PARAMS.ia.puter);
+  let _puterCarregando = null;
+  function carregarPuter(){
+    if (window.puter) return Promise.resolve(window.puter);
+    if (!_puterCarregando) _puterCarregando = new Promise((ok, erro) => {
+      const sc = document.createElement('script'); sc.src = 'https://js.puter.com/v2/';
+      sc.onload = () => ok(window.puter); sc.onerror = () => { _puterCarregando = null; erro(new Error('não foi possível carregar o Puter.js')); };
+      document.head.appendChild(sc);
+    });
+    return _puterCarregando;
+  }
+  // login do Puter abre uma janela: precisa sair direto do clique (antes de qualquer espera)
+  async function loginPuterSePreciso(){
+    if (!usaPuter()) return true;
+    const p = window.puter || await carregarPuter();
+    if (p.auth && p.auth.isSignedIn && !p.auth.isSignedIn()){ try { await p.auth.signIn(); } catch (e){ showToast('Entre na sua conta Puter para usar a IA'); return false; } }
+    return true;
+  }
+  const IA_CONVENCOES = `
+Você trabalha na Melting (Soluções em Manutenção Industrial), que vende mangueiras, terminais,
+conexões hidráulicas, engates, correias, lençóis de borracha e itens montados. Convenções do cadastro Melting:
+- "Apelido" é um código compacto. Terminais de mangueira: {bitola da mangueira em dash}G{bitola da rosca em dash}{tipo}[45|90]SML.
+  Tipos: FJX = fêmea giratória JIC 37°; FFORX = fêmea ORFS (sede plana); FBSPORX = fêmea BSP; FDLORX / FDHORX = fêmea DIN série L / S (DKO);
+  MP = macho NPT; MBSPP = macho BSP; MJ = macho JIC; MLSP = ponta lisa; FL / FLH = flange código 61 / 62; FP = fêmea NPT fixa.
+- Adaptadores hidráulicos: {dash}{tipo}{dash}{tipo}[ângulo], ex.: 12MJ12MBSPP, 8MJ4MP.
+- Dash = polegada × 16 (1/4=4, 3/8=6, 1/2=8, 3/4=12, 1=16, 1.1/4=20, 1.1/2=24, 2=32). JIC: 7/16=4, 9/16=6, 3/4=8, 7/8=10, 1.1/16=12, 1.5/16=16, 1.5/8=20.
+- Conexões de tubo (anilha 24°): UMA/UMI/UMC (união macho aço/inox/latão), UFA/UFI (fêmea), JIA/JMI (joelho), TIA/TII (tê); número = tubo em mm, L/S = série leve/pesada.
+- Lençóis: NATURAL / NITRILICO / NEOPRENE / EPDM + espessura + SL (sem lona) ou 1L/2L (lonas) + largura em metros, ex.: NITRILICO1/8XSLX1,00MTORION.
+- Rosca NPT ≠ BSP ≠ UNF/JIC. Inox ≠ aço carbono ≠ latão ≠ PVC. Nunca troque padrão de rosca, material, tipo de peça, dureza ou medida.
+`;
+  function iaTexto(r){
+    if (r == null) return '';
+    if (typeof r === 'string') return r;
+    const c = r.message && r.message.content;
+    if (typeof c === 'string') return c;
+    if (Array.isArray(c)) return c.map(x => x && (x.text || '')).join('');
+    if (r.text) return String(r.text);
+    return String(r);
+  }
+  function iaJSON(txt){ const i = txt.indexOf('{'), j = txt.lastIndexOf('}'); if (i < 0 || j < i) throw new Error('resposta da IA sem JSON'); return JSON.parse(txt.slice(i, j + 1)); }
+  async function puterChat(sistema, usuario){
+    const p = await carregarPuter();
+    const msgs = [{ role: 'system', content: sistema }, { role: 'user', content: usuario }];
+    const modelo = (PARAMS.ia && PARAMS.ia.modeloPuter || '').trim();
+    try { return iaTexto(await p.ai.chat(msgs, modelo ? { model: modelo } : {})); }
+    catch (e){ if (!modelo) throw e; console.warn('[Puter] modelo ' + modelo + ' falhou, usando o padrão', e); return iaTexto(await p.ai.chat(msgs)); }
+  }
+  // mesmos dois passos da função "responder-itens", feitos no navegador
+  async function iaPasso(passo, itens){
+    if (!usaPuter()){
+      const r = await supabaseClient.functions.invoke('responder-itens', { body: { passo, itens } });
+      if (r.error) throw r.error; return r.data || {};
+    }
+    if (passo === 'consultas'){
+      const sistema = IA_CONVENCOES + `
+Tarefa: para cada item do cliente, escreva de 2 a 4 buscas curtas (no máximo 60 caracteres cada) do jeito que o item
+provavelmente está escrito no cadastro Melting: um apelido provável e descrições curtas com tipo, medida, rosca e material.
+Responda SOMENTE com JSON: {"itens":[{"consultas":["...","..."]}, ...]} na mesma ordem dos itens.`;
+      const usuario = itens.map((it, i) => `${i + 1}. ${String(it.descricao || '').slice(0, 900)}${it.ref ? ` | REF: ${it.ref}` : ''}${it.un ? ` | UN: ${it.un}` : ''}`).join('\n');
+      const j = iaJSON(await puterChat(sistema, usuario));
+      return { itens: itens.map((_, i) => ({ consultas: (((j.itens || [])[i] || {}).consultas || []).slice(0, 4).map(x => String(x).slice(0, 80)) })) };
+    }
+    const sistema = IA_CONVENCOES + `
+Tarefa: para cada item do cliente, escolha entre os candidatos do cadastro o produto EQUIVALENTE (mesmo tipo de peça,
+mesmas medidas, mesmo padrão de rosca, mesmo material, mesmas pontas). Se nenhum for equivalente, responda produto_id null
+e escreva em "descricao_sugerida" como o item deveria ser cadastrado no padrão Melting (descrição curta + apelido provável).
+Seja conservador: na dúvida, null.
+Responda SOMENTE com JSON:
+{"itens":[{"produto_id":"123"|null,"confianca":"alta"|"media"|"baixa","justificativa":"até 140 caracteres","descricao_sugerida":"..."}]}
+na mesma ordem dos itens.`;
+    const usuario = itens.map((it, i) => `ITEM ${i + 1}: ${String(it.descricao || '').slice(0, 900)}${it.ref ? ` | REF: ${it.ref}` : ''}\n  Candidatos:\n` +
+      ((it.candidatos || []).slice(0, 20).map(c => `   - ${c.id} | ${c.apelido} | ${c.descricao}`).join('\n') || '   (nenhum)')).join('\n\n');
+    const j = iaJSON(await puterChat(sistema, usuario));
+    return { itens: itens.map((it, i) => {
+      const e = (j.itens || [])[i] || {}; const id = e.produto_id == null ? null : String(e.produto_id);
+      return { produto_id: id && (it.candidatos || []).some(c => String(c.id) === id) ? id : null,   // só aceita ID que estava entre os candidatos
+        confianca: ['alta', 'media', 'baixa'].includes(String(e.confianca)) ? e.confianca : 'baixa',
+        justificativa: String(e.justificativa || '').slice(0, 200), descricao_sugerida: e.descricao_sugerida ? String(e.descricao_sugerida).slice(0, 200) : null };
+    }) };
+  }
+
   async function pedirIA(){
-    if (!DB_ATIVO){ showToast('A IA precisa do Supabase conectado.'); return; }
+    if (!DB_ATIVO && !usaPuter()){ showToast('A IA precisa do Supabase conectado (ou ligue o Puter.js em Parâmetros).'); return; }
     const alvo = RP.itens.filter(i => !i.produto_id || i.confianca === 'baixa');
     if (!alvo.length) return;
     const btn = $('rp-ia'); btn.disabled = true;
@@ -948,9 +1029,8 @@ const Intel = (function(){
         const parte = alvo.slice(k, k + lote);
         prog.querySelector('span').textContent = `IA: analisando itens ${k + 1}–${k + parte.length} de ${alvo.length}...`;
         // passo 1: a IA escreve buscas no "jeito Melting" de descrever
-        const r1 = await supabaseClient.functions.invoke('responder-itens', { body: { passo: 'consultas', itens: parte.map(it => ({ descricao: it.descricao_cliente, ref: it.ref, un: it.un })) } });
-        if (r1.error) throw r1.error;
-        const consultas = (r1.data && r1.data.itens) || [];
+        const r1 = await iaPasso('consultas', parte.map(it => ({ descricao: it.descricao_cliente, ref: it.ref, un: it.un })));
+        const consultas = r1.itens || [];
         // passo 2: o sistema procura no catálogo com essas buscas e a IA escolhe
         const comCand = parte.map((it, j) => {
           const qs = ((consultas[j] && consultas[j].consultas) || []).concat(it.ref ? [it.ref] : []);
@@ -960,9 +1040,8 @@ const Intel = (function(){
           const cands = [...vistos.values()].sort((a, b) => b.score - a.score).slice(0, 20);
           return { it, cands };
         });
-        const r2 = await supabaseClient.functions.invoke('responder-itens', { body: { passo: 'escolher', itens: comCand.map(x => ({ descricao: x.it.descricao_cliente, ref: x.it.ref, un: x.it.un, candidatos: x.cands.map(c => ({ id: c.prod.id, descricao: c.prod.d, apelido: c.prod.a })) })) } });
-        if (r2.error) throw r2.error;
-        const esc2 = (r2.data && r2.data.itens) || [];
+        const r2 = await iaPasso('escolher', comCand.map(x => ({ descricao: x.it.descricao_cliente, ref: x.it.ref, un: x.it.un, candidatos: x.cands.map(c => ({ id: c.prod.id, descricao: c.prod.d, apelido: c.prod.a })) })));
+        const esc2 = r2.itens || [];
         comCand.forEach((x, j) => {
           const e = esc2[j] || {};
           const it = x.it;
@@ -984,7 +1063,7 @@ const Intel = (function(){
       showToast(`IA encontrou ${achados} de ${alvo.length} item(ns) — confira antes de aprovar`);
     } catch (e){
       console.error(e);
-      showToast('IA indisponível: ' + (e.message || e) + ' — veja o README (função responder-itens).');
+      showToast('IA indisponível: ' + (e.message || e) + (usaPuter() ? ' — confira o login no Puter.' : ' — veja o README (função responder-itens).'));
     } finally { btn.disabled = false; setTimeout(() => { prog.hidden = true; }, 600); }
   }
 
@@ -1099,8 +1178,8 @@ const Intel = (function(){
     $('rp-cab').addEventListener('change', e => { RP.cab = Math.max(0, Number(e.target.value) - 1); RP.mapa = adivinharMapa(RP.matriz[RP.cab] || []); renderMapa(); });
     $('rp-contrato').addEventListener('change', e => { RP.contratoId = e.target.value; if (!$('rp-resultado').hidden) renderResultado(); });
     $('rp-rodar').addEventListener('click', rodarMotor);
-    $('rp-texto-rodar').addEventListener('click', responderTexto);
-    $('rp-texto').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); responderTexto(); } });
+    $('rp-texto-rodar').addEventListener('click', async () => { if ($('rp-texto-ia').checked && !(await loginPuterSePreciso())) return; responderTexto(); });
+    $('rp-texto').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); (async () => { if ($('rp-texto-ia').checked && !(await loginPuterSePreciso())) return; responderTexto(); })(); } });
     $('rp-texto-ia').checked = !!(PARAMS.ia && PARAMS.ia.ativa);
     $('rp-texto-ia').addEventListener('change', e => { e.target.dataset.mexido = '1'; });
     $('rp-filtro').addEventListener('change', e => { RP.filtro = e.target.value; renderResultado(); });
@@ -1109,7 +1188,7 @@ const Intel = (function(){
       let n = 0; RP.itens.forEach(it => { if (it.produto_id && it.confianca === 'alta' && it.status !== 'aprovado'){ it.status = 'aprovado'; n++; } });
       renderResultado(); showToast(n + ' item(ns) de confiança alta aprovados');
     });
-    $('rp-ia').addEventListener('click', pedirIA);
+    $('rp-ia').addEventListener('click', async () => { if (await loginPuterSePreciso()) pedirIA(); });
     $('rp-baixar').addEventListener('click', baixarRespondida);
     $('rp-salvar').addEventListener('click', salvarNoContrato);
     popularContratosSelect('');
@@ -1523,7 +1602,9 @@ const Intel = (function(){
     ]},
     { sec: 'IA (Claude)', campos: [
       { k: 'ia.ativa', l: 'Usar IA para itens sem resposta', t: 'bool', d: 'Precisa da função "responder-itens" publicada no Supabase (ver README). Cobra por uso da API.' },
-      { k: 'ia.loteItens', l: 'Itens por chamada da IA', t: 'number' }
+      { k: 'ia.loteItens', l: 'Itens por chamada da IA', t: 'number' },
+      { k: 'ia.puter', l: 'Usar Puter.js (sem chave de API)', t: 'bool', d: 'A IA roda no navegador pelo Puter.js: cada usuário entra com a própria conta Puter e o uso fica por conta dela. As descrições passam pelos servidores do Puter. Desligado = função "responder-itens" do Supabase.' },
+      { k: 'ia.modeloPuter', l: 'Modelo no Puter (opcional)', t: 'text', d: 'Vazio = modelo padrão do Puter. Se o modelo digitado não existir, o sistema tenta o padrão.' }
     ]}
   ];
   const getP = (o, k) => k.split('.').reduce((a, x) => a == null ? a : a[x], o);
@@ -1669,7 +1750,7 @@ const Intel = (function(){
 
   // ---------------- ganchos chamados pelo app.js ----------------
   function aoAbrirView(view){
-    if (view === 'responder'){ popularContratosSelect($('rp-contrato') ? $('rp-contrato').value : ''); const cb = $('rp-texto-ia'); if (cb && !cb.dataset.mexido) cb.checked = !!(PARAMS.ia && PARAMS.ia.ativa); }
+    if (view === 'responder'){ if (usaPuter()) carregarPuter().catch(e => console.warn('[Puter]', e.message || e)); popularContratosSelect($('rp-contrato') ? $('rp-contrato').value : ''); const cb = $('rp-texto-ia'); if (cb && !cb.dataset.mexido) cb.checked = !!(PARAMS.ia && PARAMS.ia.ativa); }
     if (view === 'base'){ atualizarStatusBase(); if (!S.catalogo) carregarCatalogo().then(atualizarStatusBase).catch(() => {}); }
     if (view === 'parametros') renderParametros();
     if (view === 'consulta'){ renderConsulta(); if (!S.catalogo) carregarCatalogo().then(() => renderConsulta()).catch(() => {}); }
