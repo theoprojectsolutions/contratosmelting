@@ -178,9 +178,65 @@
     const female = t.startsWith('TERMINAL FEM');
     const spec = sideSpec((female ? 'FEMEA GIRATORIA ' : 'MACHO ') + r[1] + (ang ? ' ' + ang : '') +
       (/ORFS|FACE|SEAL-LOK|SEAL LOK/.test(t) ? ' SEDE PLANA' : ''), t, hd, null);
+    if (spec && /^(MJ|FJX)$/.test(spec.T) && /UNF|JIC/.test(s) && fr) spec.td = nearest(JIC, frac(fr)) || spec.td;   // "JIC UNF 3/4" = rosca 3/4 UNF (-8)
     if (!spec || !spec.T || !spec.td) return null;
+    if (spec.T === 'FBSPORX' && /JIC/.test(s)) spec.T = 'FBSPPXJIC';   // rosca BSP com sede JIC 37°
+    const mt = s.match(/\bM\s?(\d{2})\b/);
+    if (mt && /^(MD|FD)/.test(spec.T)) { const th = +mt[1]; const S = DINS[th] === spec.td, L = DINL[th] === spec.td;
+      if (!S && !L) return null;   // rosca x tubo fora da DIN (ex.: M34 TB25): não monta
+      if (S && !L) spec.T = spec.T.replace(/^MDL$/, 'MDH').replace(/^FDLORX$/, 'FDHORX'); else if (L && !S) spec.T = spec.T.replace(/^MDH$/, 'MDL').replace(/^FDHORX$/, 'FDLORX'); }
     const a = spec.ang ? String(spec.ang) : '';
-    const codes = [`${hd}G${spec.td}${spec.T}${a}SML`, `${hd}G${spec.td}${spec.T}${a}`];
+    const base = `${hd}G${spec.td}${spec.T}${a}`;
+    const codes = /INOX|I\s?316|AISI/.test(t) ? [base + 'SMLINOX', base + 'INOX', base + 'SMLINOX316', base + 'SML', base] : [base + 'SML', base];
+    for (const c of codes) { const id = lookup(c); if (id) return { id, apelido: c }; }
+    return null;
+  }
+
+  // terminal avulso no estilo da descrição do SIG: "FEMEA GIRATORIA RETA JIC 37º UNF 9/16 X 3/8 2TR",
+  // "MACHO FIXO NPT 1" X 3/4", "FLANGE 90º 38,1 MM X 3/4"", "MACHO METRICO 24º M12X1/4'' TUBO 6MM" -> {hd}G{td}{T}{ang}
+  const FL61_MM = [[30.2, 8], [38.1, 12], [44.4, 16], [50.8, 20], [60.3, 24], [71.4, 32]];
+  const FL62_MM = [[31.8, 8], [41.3, 12], [47.6, 16], [54, 20], [63.5, 24], [79.4, 32]];
+  function terminalSigRule(det, lookup) {
+    let t = norm(det).replace(/[´`’]/g, '').replace(/^TER(?:MINAL)?\.?\s+(?:PRENS\w*\.?\s+)?/, '').replace(/^MF\b/, 'MACHO FIXO').replace(/^PONT\s?A\s?LISA/, 'PONTA LISA')
+      .replace(/\b(?:AISI\s?|INOX\s?|I)?3(?:16|04)L?\b/g, ' INOX ').replace(/X\s*2\s*(?:PRENS\w*|TR)\b/g, ' 2TR ').replace(/(X\s*\S+\s*)X\s*2\s*$/, '$1').replace(/\s+/g, ' ');
+    if (!/^(FEMEA|FEM\b|MACHO|FLANGE|PONTA LISA)/.test(t)) return null;
+    t = t.replace(/\*.*$/, '');
+    if (/ADAPT|NIPLE|UNIAO|BUJAO|TAMPAO|ESPIGAO|CONEX[AO]O TUBO|ENGATE|VALVULA/.test(t)) return null;
+    // variantes que o código montado não distingue: deixa para a busca por descrição
+    if ((/BSP/.test(t) && /SEDE PLANA|FACE PLANA/.test(t)) || /KARC?K?HER|KARCKER|\bWAP\b|LONGA?O?\b|SEXTAVAD|LATAO|ESPECIAL|PISTOLA|\bH\d{2}\b|SAE\s?45|CAPA|\b[46]\s?TR\b|ESPIRA|MODELO|TEFLON|\bR\s?14\b/.test(t) || (/BOLEAD/.test(t) && !/BSP/.test(t))) return null;
+    // bitola da mangueira: a última medida em polegada depois de um "X"
+    const rx = /X\s*(?:MANG\.?|MG\.?)?\s*(\d+\.\d+\/\d+|\d+\s\d+\/\d+|\d+\/\d+|\d(?:[.,]\d+)?)\s*(?:"|''|POL)?(?![\d\/])(?!\s*(?:MM|FPP|UNF|UNS)\b)/g;
+    let m, ult = null;
+    while ((m = rx.exec(t)) !== null) ult = m;
+    if (!ult) return null;
+    const hd = nearest(DASH_F, frac(ult[1].replace(/(\d)\.(\d+\/)/, '$1 $2').replace(',', '.')));
+    if (!hd) return null;
+    let s = (t.slice(0, ult.index) + ' ' + t.slice(ult.index + ult[0].length)).replace(/\b[12]\s?TR\b|\bR\s?\d{1,2}\b/g, ' ');
+    s = s.replace(/(\d)\s?(?:"|'')/g, '$1POL').replace(/\bPL\s?(\d{1,2})\b/g, 'TB$1').replace(/\bT\.?\s?(\d{2})\b/g, 'TB$1').replace(/\bTUBO\s?(\d{1,2})\s?MM\b/g, 'TB$1').replace(/O-?\s?RING FACE/g, 'ORFS');
+    let spec, fr = null;
+    const fl = /^FLANGE/.test(s) && s.match(/(\d{2}(?:[.,]\d)?)\s*MM/);
+    const angDe = (x) => /(?<!\d)90(?!\d)/.test(x) ? 90 : /(?<!\d)45(?!\d)/.test(x) ? 45 : 0;
+    if (fl) {
+      const mm = +fl[1].replace(',', '.'); const c62 = /COD\w*\.?\s?62|SAE ?62/.test(s);
+      spec = { T: c62 ? 'FLH' : 'FL', td: nearest(c62 ? FL62_MM : FL61_MM, mm, 0.6), ang: angDe(s) };
+    } else {
+      const cod = s.match(/COD\w*\.?\s?6([12])\s*-\s?(\d{1,2})\b/);
+      if (/\bORS\b|ORFS|FACE PLANA/.test(s)) s = s.replace(/METRIC\w*/g, ' ');
+      fr = (s.match(/\d+\s\d+\/\d+|\d+\/\d+/) || [])[0];
+      // macho O'ring sede plana (SAE O-ring boss, rosca UNF) = MB
+      if (!cod && /^MACHO/.test(s) && /O.?RING/.test(s) && /SEDE PLANA|PARALELO|O.?RING SAE/.test(s) && !/FACE|\bORS\b|ORFS/.test(s) && fr) spec = { T: 'MB', td: nearest(JIC, frac(fr)), ang: angDe(s) };
+      else spec = cod ? { T: cod[1] === '2' ? 'FLH' : 'FL', td: +cod[2], ang: angDe(s) } : sideSpec(s, t, hd, null);
+    }
+    if (spec && /^(MJ|FJX)$/.test(spec.T) && /UNF|JIC/.test(s) && fr) spec.td = nearest(JIC, frac(fr)) || spec.td;   // "JIC UNF 3/4" = rosca 3/4 UNF (-8)
+    if (!spec || !spec.T || !spec.td) return null;
+    if (spec.T === 'FBSPORX' && /JIC/.test(s)) spec.T = 'FBSPPXJIC';   // rosca BSP com sede JIC 37°
+    const mt = s.match(/\bM\s?(\d{2})\b/);
+    if (mt && /^(MD|FD)/.test(spec.T)) { const th = +mt[1]; const S = DINS[th] === spec.td, L = DINL[th] === spec.td;
+      if (!S && !L) return null;   // rosca x tubo fora da DIN (ex.: M34 TB25): não monta
+      if (S && !L) spec.T = spec.T.replace(/^MDL$/, 'MDH').replace(/^FDLORX$/, 'FDHORX'); else if (L && !S) spec.T = spec.T.replace(/^MDH$/, 'MDL').replace(/^FDHORX$/, 'FDLORX'); }
+    const a = spec.ang ? String(spec.ang) : '';
+    const base = `${hd}G${spec.td}${spec.T}${a}`;
+    const codes = /INOX|I\s?316|AISI/.test(t) ? [base + 'SMLINOX', base + 'INOX', base + 'SMLINOX316', base + 'SML', base] : [base + 'SML', base];
     for (const c of codes) { const id = lookup(c); if (id) return { id, apelido: c }; }
     return null;
   }
@@ -1735,7 +1791,7 @@
     }
     // 4) regras de montagem
     const look = (c) => cat.lookupApelido(c);
-    for (const [rule, nome] of [[terminalRule, 'regra de terminal'], [adapterRule, 'regra de adaptador']]) {
+    for (const [rule, nome] of [[terminalRule, 'regra de terminal'], [terminalSigRule, 'regra de terminal'], [adapterRule, 'regra de adaptador']]) {
       const x = rule(det, look);
       if (x && !travas(cat.get(x.id), ref, det, Object.assign({}, tr, { tipo: false }))) return res(x.id, 'regra', 'media', 'Montado pela ' + nome + ' (' + x.apelido + ')');
     }
@@ -1963,7 +2019,7 @@
   }
 
   const Motor = {
-    deacc, up, comp, norm, tofrac, sizes, sideSpec, terminalRule, adapterRule, travas, threads, types, toks,
+    deacc, up, comp, norm, tofrac, sizes, sideSpec, terminalRule, terminalSigRule, adapterRule, travas, threads, types, toks,
     Catalogo, Aprendizado, sugerir, medidasDescricaoOk, PADRAO, bitolaCliente,
     conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule, parsePlana, correiaPlanaRule, agregarCortes, parseLL, agregarKits, agregarFtm, mangueiraRule, mangueiraLivre, continentalParaMelting, parkerParaMelting, chaveDescHist, famMang, equivalenciaPlana, pneumaticaRule, tuboNylonRule, idMeltingCitado, codigoFabricanteRule, codigosFab
   };
