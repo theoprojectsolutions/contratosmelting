@@ -234,6 +234,58 @@
     return null;
   }
 
+  // "REFERÊNCIA COMERCIAL: ERMETO UOA 20X1/2BSP" / "REF.: GATES-12G-12MP": o código do fabricante já é o apelido Melting
+  const MARCAS_REF = /\b(?:ERMETO|PARKER|GATES|BENFLEX|AEROQUIP|EATON|STAUFF|HYLIK|EVRIKA|HIDRAUVIT|TUPY|FESTO|CAMOZZI|CONECTRON|DELTA METAL|EXIMPORT|DYNAMICS|STUCCHI|FASTER|MANULI|TRANSPOWER|SWAGELOK|KV)\b[\s.:\-\/]*/g;
+  function refComercialRule(det, lookup) {
+    const t = norm(det); const out = [];
+    const rx = /REF(?:\.|ERENCIA)(?:\s*COMERCIAL)?\s*:?\s*([^;\n]{2,80})/g; let m;
+    while ((m = rx.exec(t)) !== null) {
+      for (const parte of m[1].split(/\s+OU\s+|\s*\/\s*(?=[A-Z]{3,}\b)|\s*\+\s*/)) {
+        const sem = parte.replace(MARCAS_REF, ' ').replace(/\b(?:N[AÃ]O APLIC[AÁ]VEL|OU SIMILAR.*|SIMILAR.*|SEQU.*)$/, '').trim();
+        if (!sem || sem.length < 4) continue;
+        const c = comp(sem); if (c.length < 4 || /^\d+$/.test(c)) continue;
+        for (const v of [c, c + 'SML']) { const id = lookup(v); if (id && !out.some(o => o.id === id)) out.push({ id, apelido: v }); }
+      }
+    }
+    return out.length === 1 ? out[0] : null;   // dois códigos diferentes casando = ambíguo, deixa para as outras regras
+  }
+  // terminal no formato SAP ("TERMINAL MANGUEIRA: ... FÊMEA GIRATÓRIA; SEDE 37° JIC; CURVATURA A 90°; DIÂMETRO 9/16 POL; ROSCA UNF; DIÂMETRO INTERNO 9,53 mm")
+  function terminalSapRule(det, lookup) {
+    const t = norm(det).replace(/[ÁÂÃ]/g, 'A').replace(/[ÉÊ]/g, 'E').replace(/[ÍÎ]/g, 'I').replace(/[ÓÔÕ]/g, 'O').replace(/[ÚÛ]/g, 'U').replace(/Ç/g, 'C');
+    if (!/^TERMINAL( DE)? MANGUEIRA/.test(t)) return null;
+    if (/ESPIGAO|BICO ESCALONADO|REUSAVEL|REUTILIZ/.test(t)) return null;
+    const di = t.match(/DIAMETRO INTERNO\s*:?\s*(\d+(?:[.,]\d+)?)\s*MM/); if (!di) return null;
+    const hd = DN_MM(+di[1].replace(',', '.')); if (!hd) return null;
+    const hf = Object.keys(DASH_S).find(k => DASH_S[k] === hd); if (!hf) return null;
+    const dm = t.match(/(?:^|[;:]\s*|\s)DIAMETRO\s*:?\s*(\d+\.\d+\/\d+|\d+\/\d+|\d+)\s*POL/); if (!dm) return null;
+    const fem = /FEMEA/.test(t), mac = /MACHO/.test(t) && !fem; if (!fem && !mac) return null;
+    const ang = /CURVATURA\s*:?\s*(?:A\s*)?90|\b90\s*(?:°|º|GR)/.test(t) ? ' 90' : /CURVATURA\s*:?\s*(?:A\s*)?45|\b45\s*(?:°|º|GR)/.test(t) ? ' 45' : '';
+    let std = /ORS|ORFS|FACE PLANA|SEDE PLANA/.test(t) ? 'SEDE PLANA' : /JIC|37\s*(?:°|º)/.test(t) ? 'JIC 37 UNF' : /BSP/.test(t) ? 'BSP' : /NPT/.test(t) ? 'NPT' : /UNF/.test(t) ? 'JIC 37 UNF' : null;
+    if (!std) return null;
+    const frase = (fem ? 'FEMEA GIRATORIA' : 'MACHO FIXO') + ang + ' ' + std + ' ' + dm[1] + ' X ' + hf.replace('.', ' ');
+    const x = terminalSigRule(frase + (/INOX/.test(t) ? ' INOX' : ''), lookup);
+    return x ? { id: x.id, apelido: x.apelido } : null;
+  }
+  // adaptador no formato SAP ("CONEXÃO: MACHO X MACHO ; ROSCA: NPT X UNF ; DIÂMETRO NOMINAL: 1.1/4 X 1.5/8 POL")
+  const PIPE_STD = { NPT: 'P', NPTF: 'P', BSP: 'BSPP', BSPP: 'BSPP', BSPT: 'BSPP' };
+  function adapterSapRule(det, lookup) {
+    const t = norm(det).replace(/[ÁÂÃ]/g, 'A').replace(/[ÉÊ]/g, 'E').replace(/[ÓÔÕ]/g, 'O').replace(/Ç/g, 'C');
+    if (!/^(ADAPTADOR|UNIAO ADAPTADOR)/.test(t)) return null;
+    const g = t.match(/CONEXAO\s*:?\s*(MACHO|FEMEA)\s*X\s*(MACHO|FEMEA)/); const r = t.match(/ROSCA\s*:?\s*(NPTF?|BSPP?|BSPT|UNF|JIC)(?:\s*X\s*(NPTF?|BSPP?|BSPT|UNF|JIC))?/);
+    const d = t.match(/DIAMETRO NOMINAL\s*:?\s*(\d+\.\d+\/\d+|\d+\/\d+|\d+)(?:\s*X\s*(\d+\.\d+\/\d+|\d+\/\d+|\d+))?\s*POL/);
+    if (!g || !r || !d) return null;
+    const lados = [[g[1], r[1], d[1]], [g[2], r[2] || r[1], d[2] || d[1]]].map(([gen, rs, dd]) => {
+      const v = frac(dd.replace(/(\d)\.(\d+\/)/, '$1 $2')); if (v == null) return null;
+      const jic = /UNF|JIC/.test(rs); const dash = jic ? nearest(JIC, v) : nearest(PIPE, v); if (!dash) return null;
+      const T = jic ? (gen === 'MACHO' ? 'MJ' : 'FJX') : (gen === 'MACHO' ? 'M' : 'F') + PIPE_STD[rs];
+      return dash + T;
+    });
+    if (lados.some(x => !x)) return null;
+    const inox = /INOX|AISI/.test(t) ? (/316/.test(t) ? ['INOX316', 'INOX'] : ['INOX', 'INOX304']) : [''];
+    for (const suf of inox) for (const c of [lados[0] + lados[1], lados[1] + lados[0]]) { const id = lookup(c + suf); if (id) return { id, apelido: c + suf }; }
+    return null;
+  }
+
   function endSpec(seg) {
     seg = seg.trim();
     const m = seg.match(/(\d+\s+\d+\/\d+|\d+\/\d+|\d+)\s*(UNF|UNS|NPTF|NPT|BSPP|BSPT|BSP|JIC|ORFS|MM)?/);
@@ -419,7 +471,8 @@
   function prefCorpo(ctx) {
     if (ctx._prefCorpo !== undefined) return ctx._prefCorpo;
     let c = 0, n = 0;
-    if (ctx.depara) for (const id of ctx.depara.values()) {
+    const ids = [...(ctx.depara ? ctx.depara.values() : []), ...(ctx.historico ? [...ctx.historico.values()].filter(h => !h.geral).map(h => h.id) : [])];
+    for (const id of ids) {
       const p = ctx.catalogo.get(id); if (!p || !/^C?(?:U|J|T)[A-Z]{1,2}\d/.test(comp(p.a))) continue;
       if (ctx.catalogo.versoesTubo(p).length < 2) continue;
       n++; if (ehCorpo(p)) c++;
@@ -1784,7 +1837,7 @@
     }
     // 4) regras de montagem
     const look = (c) => cat.lookupApelido(c);
-    for (const [rule, nome] of [[terminalRule, 'regra de terminal'], [terminalSigRule, 'regra de terminal'], [adapterRule, 'regra de adaptador']]) {
+    for (const [rule, nome] of [[refComercialRule, 'referência comercial do cliente'], [terminalRule, 'regra de terminal'], [terminalSigRule, 'regra de terminal'], [terminalSapRule, 'regra de terminal'], [adapterRule, 'regra de adaptador'], [adapterSapRule, 'regra de adaptador']]) {
       const x = rule(det, look);
       if (x && !travas(cat.get(x.id), ref, det, Object.assign({}, tr, { tipo: false }))) return res(x.id, 'regra', 'media', 'Montado pela ' + nome + ' (' + x.apelido + ')');
     }
@@ -2012,7 +2065,7 @@
   }
 
   const Motor = {
-    deacc, up, comp, norm, tofrac, sizes, sideSpec, terminalRule, terminalSigRule, adapterRule, travas, threads, types, toks,
+    deacc, up, comp, norm, tofrac, sizes, sideSpec, terminalRule, terminalSigRule, terminalSapRule, refComercialRule, adapterRule, adapterSapRule, travas, threads, types, toks,
     Catalogo, Aprendizado, sugerir, medidasDescricaoOk, PADRAO, bitolaCliente,
     conexaoTubo, conexaoGalvanizada, refSintetico, parseCorreia, correiaRule, parsePlana, correiaPlanaRule, agregarCortes, parseLL, agregarKits, agregarFtm, mangueiraRule, mangueiraLivre, continentalParaMelting, parkerParaMelting, chaveDescHist, famMang, equivalenciaPlana, pneumaticaRule, tuboNylonRule, idMeltingCitado, codigoFabricanteRule, codigosFab
   };
