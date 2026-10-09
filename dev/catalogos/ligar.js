@@ -3,6 +3,7 @@
 const R=__dirname+'/../../';const S=R+'dev/dados/catalogos';const fs=require('fs');
 const cat=require(R+'dev/dados/cat.json');
 const T=require(S+'/tuder_fichas.json'),H=require(S+'/himaflex.json');
+const MN={};try{for(const o of require(S+'/manuli_mangueiras.json'))MN[o.modelo+'|'+o.traco]=o;}catch(e){}
 const G={};try{for(const o of require(S+'/gates_mangueiras.json'))G[o.nome]=o;}catch(e){}
 const POL={'1/4':6.35,'3/8':9.5,'1/2':12.7,'5/8':15.9,'3/4':19.05,'1':25.4,'11/4':31.75,'1,1/4':31.75,'1.1/4':31.75,'11/2':38.1,'1,1/2':38.1,'1.1/2':38.1,'2':50.8,'21/2':63.5,'2,1/2':63.5,'2.1/2':63.5,'3':76.2,'4':101.6,'5':127,'6':152.4,'8':203.2,'10':254};
 const key=s=>s.toUpperCase().replace(/NR\b/g,'NATURAL').replace(/CONDUTIVE/g,'CONDUCTIVE').replace(/CRUSCH/g,'CRUSH').replace(/PREMIUN/g,'PREMIUM').replace(/[^A-Z]/g,'');
@@ -43,13 +44,28 @@ for(const r of cat){
 let ng=0;const semG={};
 for(const r of cat){
   const ap=(r[2]||'').trim();if(/\*/.test(ap)||r[3]!=='A'||!/MANGUEIRAS HIDRAULICAS/.test(r[4]))continue;
-  const m=ap.replace(/\s+/g,'').match(/^(\d{1,2})([A-Z][A-Z0-9]*?)(MTF|XTF|XTP|XLL|XCTN|G2|ENFAIXADA)?(SML.*|-.*)?$/);if(!m)continue;
+  const m=ap.replace(/\s+/g,'').match(/^(\d{1,2})((?:\d(?=X[HP]))?[A-Z][A-Z0-9]*?)(MTF|XTF|XTP|XLL|XCTN|G2|ENFAIXADA)?(SML.*|-.*)?$/);if(!m)continue;
+  if(/MANULI/.test(ap)){const d=r[1].toUpperCase();const n=(d.match(/\b(1SN|2SN|1SC|2SC|2ST|4SP|4SH)\b/)||[])[1]||((d.match(/R(12|13|15)\b/)||[])[1]);
+    const o=n&&MN['ROCKMASTER/'+n+'|'+(+m[1])];
+    if(o){out[r[0]]={marca:'MANULI',modelo:o.modelo,ap,desc:r[1],di:o.dn,de:o.de,wp:o.wp_bar,bp:o.bp_bar,raio:o.raio,norma:'',fonte:o.arq+' p.'+o.pag};ng++;continue;}}
   const k1=m[1]+m[2]+(m[3]&&/MTF|XTF/.test(m[3])?m[3]:''),k2=m[1]+m[2];
   const o=G[k1]||G[k2]||G[m[1]+m[2].replace(/^C/,'G')];
   if(!o){semG[m[2]]=(semG[m[2]]||0)+1;continue;}
   const sml=/SML/.test(m[4]||'');
   out[r[0]]={marca:'GATES',modelo:o.nome+(sml?' (equivalente: '+ap.replace(/^.*SML-?/,'')+' no padrão Gates)':''),ap,desc:r[1],di:o.di,de:o.de,wp:o.wp_bar,bp:o.bp_bar,raio:o.raio,norma:o.norma,fonte:o.arq+' p.'+o.pag};ng++;
 }
+// correias planas pela matéria-prima (Meltpower / Nitta): ID base e todas as correias prontas NIT…*LxC* do mesmo material
+let nc=0;const CF=(()=>{try{return require(S+'/correias_fichas.json');}catch(e){return {};}})();
+const ck=s=>s.toUpperCase().replace('MELTPOWER','').replace(/[^A-Z0-9]/g,'').replace(/(\d)MM$/,'$1');
+for(const r of cat){
+  if(r[3]!=='A'||!/CORREIA/.test(r[4]))continue;
+  const pre=(r[2]||'').split('*')[0];const k=ck(pre);if(!k)continue;
+  let f=CF[k];let vari='';
+  if(!f){const c=Object.keys(CF).filter(x=>x.startsWith(k)&&x.length-k.length<=3);if(c.length===1)f=CF[c[0]];else if(c.length>1){f=CF[c[0]];vari=c.map(x=>CF[x].material+' ('+CF[x].espessura+')').join(' | ');}}
+  if(!f)continue;
+  out[r[0]]={tipo:'correia',ap:r[2],desc:r[1],...f,variantes:vari};nc++;
+}
+console.log('Correias planas ligadas pela matéria-prima',nc);
 console.log('Gates hidráulicas ligadas',ng,'sem ficha',Object.entries(semG).sort((a,b)=>b[1]-a[1]).slice(0,15));
 fs.writeFileSync(S+'/fichas_por_id.json',JSON.stringify(out));
 console.log('Tuder ligados',nt,'Himaflex ligados',nh);console.log('Tuder sem ficha',semT);console.log('Himaflex sem ficha',semH);

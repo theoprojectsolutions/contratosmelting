@@ -7,14 +7,29 @@ const sem = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase(
 const args = process.argv.slice(2);
 if (!args.length) { console.log('uso: node dev/catalogos/buscar.js <ID | termos>'); process.exit(1); }
 const fichas = JSON.parse(fs.readFileSync(D + 'fichas_por_id.json', 'utf8'));
-const mostra = (id, f) => console.log(`${id} ${f.ap}\n  ${f.marca} ${f.modelo || ''} ${f.codigo || ''} | DI ${f.di} mm | DE ${f.de ?? '?'} mm` +
+const mostra = (id, f) => f.tipo === 'correia' ? console.log(`${id} ${f.ap}\n  ${f.marca} ${f.material} | espessura ${f.espessura || '?'}${f.lonas ? ' | ' + f.lonas + ' lonas ' + (f.tracao || '') : (f.tracao ? ' | tração ' + f.tracao : '')}` +
+  `${f.cobertura ? ' | cobertura ' + f.cobertura + (f.cor ? ' ' + f.cor : '') : ''}${f.carga ? ' | carga ' + f.carga : ''}${f.tensao ? ' | tensão máx. ' + f.tensao : ''}` +
+  `\n  polia mín. ${f.polia_min || '?'}${f.polias ? ' (' + f.polias + ')' : ''}${f.temp ? ' | ' + f.temp : ''}${f.antiestatica ? ' | antiestática ' + f.antiestatica : ''}${f.largura_max ? ' | largura máx. ' + f.largura_max : ''}` +
+  `${f.aplicacoes ? '\n  aplicações: ' + f.aplicacoes : ''}${f.variantes ? '\n  ATENÇÃO, mais de uma espessura no catálogo: ' + f.variantes : ''}\n  fonte: ${f.fonte}`) : console.log(`${id} ${f.ap}\n  ${f.marca} ${f.modelo || ''} ${f.codigo || ''} | DI ${f.di} mm | DE ${f.de ?? '?'} mm` +
   `${f.esp ? ' | parede ' + f.esp + ' mm' : ''} | trabalho ${f.wp ?? '?'} bar${f.bp ? ' | ruptura ' + f.bp + ' bar' : ''}` +
   `${f.vacuo ? ' | vácuo ' + f.vacuo : ''}${f.temp ? ' | ' + f.temp : ''}${f.raio ? ' | raio ' + f.raio + ' mm' : ''}` +
   `${f.tubo ? '\n  tubo: ' + f.tubo : ''}${f.reforco ? ' | reforço: ' + f.reforco : ''}${f.cobertura ? '\n  cobertura: ' + f.cobertura : ''}` +
   `${f.norma ? '\n  norma: ' + f.norma : ''}\n  fonte: ${f.fonte}`);
-if (args.length === 1 && /^\d+$/.test(args[0])) {
+if (args.length === 1 && (/^\d+$/.test(args[0]) || fichas[args[0]])) {
   const f = fichas[args[0]];
-  if (f) mostra(args[0], f); else console.log('Sem ficha ligada a esse ID (marca sem catálogo com texto, ou modelo/bitola não encontrado).');
+  if (f) { mostra(args[0], f); process.exit(0); }
+  // correia em V / sincronizadora: perfil lido pelo parseCorreia do motor + tabela de perfis (Contitech)
+  const cat = require(__dirname + '/../dados/cat.json'), r = cat.find(x => x[0] === args[0]);
+  const pc = r && require(__dirname + '/../../js/motor.js').parseCorreia(r[1] + ' ' + r[2], true);
+  const perfis = fs.existsSync(D + 'perfis.json') ? JSON.parse(fs.readFileSync(D + 'perfis.json', 'utf8')) : {};
+  const pf = pc && perfis[pc.perfil];
+  if (pf) {
+    const c = pf.comprimentos[String(pc.comp)];
+    console.log(`${args[0]} ${r[2]} | ${r[1]}\n  perfil ${pc.perfil} (${pf.tipo})` +
+      (pf.tipo === 'V' ? ` | largura no topo ${pf.largura_topo} mm | altura ${pf.altura} mm | comprimento ${pc.comp} mm` + (c ? ' (Ld padrão no catálogo)' : ' (fora da lista padrão do catálogo)')
+        : ` | passo ${pf.passo} mm | altura ${pf.altura} mm | dente ${pf.altura_dente} mm | comprimento ${pc.comp} mm` + (pf.passo && pc.comp ? ` = ${Math.round(pc.comp / pf.passo)} dentes` : '') + (pc.larg ? ` | largura ${pc.larg} mm` : '') + (c ? ` (padrão no catálogo, z = ${c.z})` : ''))
+      + `\n  fonte: ${pf.fonte_secao}${c ? ' | comprimento: ' + c.fonte : ''}`);
+  } else console.log('Sem ficha ligada a esse ID (marca sem catálogo com texto, ou modelo/bitola não encontrado).');
   process.exit(0);
 }
 const termos = sem(args.join(' ')).split(/\s+/).filter(Boolean);
