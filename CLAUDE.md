@@ -63,6 +63,13 @@ Referência de qualidade (Arcelor, itens com ID já preenchido pelo Kayan, usand
 - SQL: `npm i @electric-sql/pglite && node dev/testes/teste_sql.mjs` (roda todos os .sql com stubs de auth/storage e testa as visões). O erro em `colunas-adicionais.sql` com os dados de exemplo é pré-existente.
 - Navegador: servir a pasta (`python3 -m http.server 8765`) e rodar `python3 dev/testes/teste_navegador.py` (Playwright; troca o supabase-js do CDN por `dev/testes/mock-supabase.js`, banco em memória). Precisa dos .xls do SIG e das planilhas da Arcelor/Trivium em `dev/testes/files/`.
 
+## Catálogos de fornecedores (`dev/catalogos/`)
+- Texto extraído dos PDFs pelo `preparar_catalogos.py` do usuário (roda no Windows, sobre o ZIP de catálogos). Os `catalogos_texto_*.txt` vão em `dev/dados/catalogos/texto/` (fora do git: conteúdo de fornecedor).
+- Pipeline: `python3 dev/catalogos/paginas.py dev/dados/catalogos` → `tuder.py` → `tuder_rev2022.py` → `tuder_nome.py` → `himaflex.py` (mesmo argumento) → `node dev/catalogos/ligar.js` (liga ao `cat.json` por modelo + bitola → `fichas_por_id.json`).
+- Consulta: `node dev/catalogos/buscar.js 117467` (ficha do ID: DI, DE, pressão de trabalho/ruptura, vácuo, temperatura, tubo/reforço/cobertura, norma, arquivo e página) ou `buscar.js sucção cristal 1"` (fichas + busca no texto de todas as páginas).
+- 1º lote (out/2026): 397 PDFs únicos, 1.446 páginas com texto; Tuder ~90 modelos e Himaflex 263 linhas; 100 IDs Tuder e 76 Himaflex com ficha. Kanaflex: catálogos de mangueira protegidos por senha ou só imagem — sem ficha. Orion: páginas de lençol são imagem.
+- Himaflex no catálogo usa códigos diferentes do cadastro: HAS = Standard Cristal (cadastro HSCA, KAT…HIMAFLEX), HASB = Light Branca (HBSA/HSBA, KA…HIMAFLEX), HSV = Verde Oliva (HVO).
+
 ## Histórico e decisões do usuário
 - Planilhas de clientes respondidas até agora: Trivium (teste_cloude_1), Suzano (mangueiras, muito OEM), Arcelor (analise_arcelor_kayan). Cada cliente é independente — não misturar dados de um na resposta do outro.
 - Para Habasit, usar similares Nitta (relpro_nita) só quando comprimento e largura batem e a descrição não pede furo, talisca ou acessório.
