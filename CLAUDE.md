@@ -65,8 +65,10 @@ Referência de qualidade (Arcelor, itens com ID já preenchido pelo Kayan, usand
 
 ## Catálogos de fornecedores (`dev/catalogos/`)
 - Texto extraído dos PDFs pelo `preparar_catalogos.py` do usuário (roda no Windows, sobre o ZIP de catálogos). Os `catalogos_texto_*.txt` vão em `dev/dados/catalogos/texto/` (fora do git: conteúdo de fornecedor).
-- Pipeline: `python3 dev/catalogos/paginas.py dev/dados/catalogos` → `tuder.py` → `tuder_rev2022.py` → `tuder_nome.py` → `himaflex.py` (mesmo argumento) → `node dev/catalogos/ligar.js` (liga ao `cat.json` por modelo + bitola → `fichas_por_id.json`).
+- Pipeline: `python3 dev/catalogos/paginas.py dev/dados/catalogos` (lê `texto/**/catalogos_texto_*.txt`, uma subpasta por lote) → `tuder.py` → `tuder_rev2022.py` → `tuder_nome.py` → `himaflex.py` → `parker.py` → `gates.py` (mesmo argumento) → `node dev/catalogos/ligar.js` (liga ao `cat.json` por modelo + bitola → `fichas_por_id.json`).
+- Parker e Gates (lote 2, 18 mil páginas): linhas lidas pelo conteúdo — par de pressão por ruptura ≈ 4 × trabalho ou psi/MPa ≈ 145 / psi/bar ≈ 14,5; DI e DE são os mm antes dele; tabela só em polegada (catálogos EUA) é convertida. Parker = referência de norma por série-traço (a Melting não tem mangueira Parker no cadastro). Gates liga direto pelo apelido (8M2T, 12C2AT, 16EFG6K…); itens SML de outra marca no padrão Gates (12C1TSML-BALFLEX) recebem a ficha Gates marcada como equivalente. Sem ficha: AGR1/AGR2, C1TH, MXT, PROXT (linhas próprias ou novas).
 - Consulta: `node dev/catalogos/buscar.js 117467` (ficha do ID: DI, DE, pressão de trabalho/ruptura, vácuo, temperatura, tubo/reforço/cobertura, norma, arquivo e página) ou `buscar.js sucção cristal 1"` (fichas + busca no texto de todas as páginas).
+- 2º lote: Parker (516 série-traço, 93 séries) e Gates (450 mangueiras; 277 IDs ligados).
 - 1º lote (out/2026): 397 PDFs únicos, 1.446 páginas com texto; Tuder ~90 modelos e Himaflex 263 linhas; 100 IDs Tuder e 76 Himaflex com ficha. Kanaflex: catálogos de mangueira protegidos por senha ou só imagem — sem ficha. Orion: páginas de lençol são imagem.
 - Himaflex no catálogo usa códigos diferentes do cadastro: HAS = Standard Cristal (cadastro HSCA, KAT…HIMAFLEX), HASB = Light Branca (HBSA/HSBA, KA…HIMAFLEX), HSV = Verde Oliva (HVO).
 
